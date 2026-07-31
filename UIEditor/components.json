@@ -1,15 +1,21 @@
 {
     "UIComponent": {
-        "size": { "w": 100, "h": 50 },
-        "anchor": { "x": 0.5, "y": 0.5 }
+        "properties": {
+            "size": { "type": "v2", "default": "(100,50)" },
+            "anchor": { "type": "v2", "default": "(0.5,0.5)" }
+        }
     },
     "OpacityComponent": {
-        "opacity": 1.0
+        "properties": {
+            "opacity": { "type": "number", "default": 1.0 }
+        }
     },
-    "SpriteComponent": {
-        "color": [1.0, 1.0, 1.0, 1.0],
-        "framePath": "assets/sprite.png",
-        "sizeMode": 0,
-        "type": 1
+   "SpriteComponent": {
+    "properties": {
+      "framePath": { "type": "string", "default": "" },
+      "color": { "type": "color", "default": "#FFFFFF" },
+      "sizeMode": { "type": "number", "default": 2 },
+      "type": { "type": "number", "default": 1 }
     }
+  }
 }
