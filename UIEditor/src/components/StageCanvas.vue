@@ -21,8 +21,13 @@ const wrapEl = ref<HTMLDivElement>()
 let app: Application | null = null
 let world: Container | null = null
 let selectionG: Graphics | null = null
+let handlesLayer: Container | null = null
+let handles: Graphics[] = []
 let destroyed = false
 let lastCenteredFile: string | null = null
+
+/** 四角控制点顺序：左上、右上、左下、右下 */
+const HANDLE_CURSORS = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resize'] as const
 
 /** 节点 _id -> Pixi 容器 */
 const idMap = new Map<string, Container>()
@@ -119,7 +124,8 @@ function queueRebuild() {
 }
 
 function rebuild() {
-  if (!app || !world || dragging) return
+  // 拖拽/四角缩放期间跳过重建，由交互逻辑直接改容器视觉属性
+  if (!app || !world || dragging || resizing) return
   for (const child of world.removeChildren()) child.destroy({ children: true })
   idMap.clear()
   const data = editor.currentUIData
@@ -136,27 +142,52 @@ function rebuild() {
   }
 }
 
+/** 就地同步节点容器的位置与尺寸视觉（拖拽/缩放过程中避免整树重建） */
+function syncNodeVisual(c: Container, node: UINode) {
+  c.position.set(node.x, node.y)
+  c.hitArea = new Rectangle(0, 0, Math.max(node.width, 1), Math.max(node.height, 1))
+  for (const child of c.children) {
+    if (child instanceof Sprite || child instanceof Graphics) {
+      // 占位框 / Sprite 贴图都是 zIndex 极低的尺寸层
+      if (child.zIndex <= -100000) {
+        if (child instanceof Sprite) {
+          child.width = node.width
+          child.height = node.height
+        } else {
+          child.clear()
+            .rect(0, 0, node.width, node.height)
+            .fill({ color: 0x4a90d9, alpha: 0.07 })
+            .stroke({ color: 0x8899aa, width: 1, alpha: 0.35 })
+        }
+      }
+    }
+  }
+}
+
 // ---------- 选中高亮框（每帧跟随） ----------
 
 function updateSelectionOutline() {
-  if (!selectionG) return
+  if (!selectionG || !handlesLayer) return
   selectionG.clear()
   const id = editor.selectedId
   const c = id ? idMap.get(id) : null
-  if (!c || c.destroyed) return
+  if (!c || c.destroyed) {
+    handlesLayer.visible = false
+    return
+  }
   const b = c.getBounds()
   selectionG.rect(b.x, b.y, b.width, b.height).stroke({ color: 0x38bdf8, width: 1.5 })
-  for (const [hx, hy] of [
+  handlesLayer.visible = true
+  const corners = [
     [b.x, b.y],
     [b.x + b.width, b.y],
     [b.x, b.y + b.height],
     [b.x + b.width, b.y + b.height],
-  ]) {
-    selectionG.rect(hx - 3, hy - 3, 6, 6).fill(0x38bdf8)
-  }
+  ]
+  handles.forEach((h, i) => h.position.set(corners[i][0], corners[i][1]))
 }
 
-// ---------- 交互：点选 / 拖拽元素 / 平移缩放 ----------
+// ---------- 交互：点选 / 拖拽元素 / 四角缩放 / 平移视图 ----------
 
 let dragging: {
   id: string
@@ -168,6 +199,71 @@ let dragging: {
 } | null = null
 
 let panning: { pointerX: number; pointerY: number; worldX: number; worldY: number } | null = null
+
+/** 四角缩放中的状态；corner: 0左上 1右上 2左下 3右下 */
+let resizing: {
+  id: string
+  corner: number
+  startX: number
+  startY: number
+  startW: number
+  startH: number
+  localX: number
+  localY: number
+  moved: boolean
+} | null = null
+
+function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
+  if (e.button !== 0) return
+  const id = editor.selectedId
+  const c = id ? idMap.get(id) : null
+  const node = findNodeById(editor.currentUIData as UINode | null, id)
+  if (!id || !c || !c.parent || !node) return
+  e.stopPropagation()
+  // 避免与节点拖拽冲突
+  dragging = null
+  const local = c.parent.toLocal(e.global)
+  resizing = {
+    id,
+    corner,
+    startX: node.x,
+    startY: node.y,
+    startW: node.width,
+    startH: node.height,
+    localX: local.x,
+    localY: local.y,
+    moved: false,
+  }
+}
+
+function applyResize(e: FederatedPointerEvent) {
+  if (!resizing) return
+  const c = idMap.get(resizing.id)
+  const node = findNodeById(editor.currentUIData as UINode | null, resizing.id)
+  if (!c || !c.parent || !node) return
+  const local = c.parent.toLocal(e.global)
+  const dx = local.x - resizing.localX
+  const dy = local.y - resizing.localY
+  const { corner, startX, startY, startW, startH } = resizing
+
+  const left = corner === 0 || corner === 2 // 拖动的是左边缘
+  const top = corner === 0 || corner === 1 // 拖动的是上边缘
+  const w = Math.max(1, Math.round(left ? startW - dx : startW + dx))
+  const h = Math.max(1, Math.round(top ? startH - dy : startH + dy))
+  const nx = left ? startX + (startW - w) : startX
+  const ny = top ? startY + (startH - h) : startY
+
+  if (w === node.width && h === node.height && nx === node.x && ny === node.y) return
+
+  // 实时更新数据源：属性栏同步、防抖写盘由 store watcher 处理
+  node.width = w
+  node.height = h
+  // 对角固定：拖左/上边缘时同步平移节点原点
+  node.x = nx
+  node.y = ny
+  syncNodeVisual(c, node)
+  resizing.moved = true
+}
 
 function onNodePointerDown(e: FederatedPointerEvent, id: string) {
   if (e.button !== 0) return
@@ -199,6 +295,10 @@ function onStagePointerMove(e: FederatedPointerEvent) {
     )
     return
   }
+  if (resizing) {
+    applyResize(e)
+    return
+  }
   if (!dragging) return
   const c = idMap.get(dragging.id)
   const node = findNodeById(editor.currentUIData as UINode | null, dragging.id)
@@ -216,6 +316,15 @@ function onStagePointerMove(e: FederatedPointerEvent) {
 
 function onStagePointerUp() {
   panning = null
+  if (resizing) {
+    const resized = resizing.moved
+    resizing = null
+    if (resized) {
+      editor.commit()
+      queueRebuild()
+    }
+    return
+  }
   if (!dragging) return
   const moved = dragging.moved
   dragging = null
@@ -260,7 +369,23 @@ onMounted(async () => {
   world = new Container()
   world.sortableChildren = true
   selectionG = new Graphics()
-  app.stage.addChild(world, selectionG)
+  handlesLayer = new Container()
+  handlesLayer.visible = false
+  handlesLayer.eventMode = 'static'
+  for (let i = 0; i < 4; i++) {
+    const handle = new Graphics()
+      .rect(-5, -5, 10, 10)
+      .fill(0x38bdf8)
+      .stroke({ color: 0x0c4a6e, width: 1 })
+    handle.eventMode = 'static'
+    // 扩大点击热区，方便抓取四角
+    handle.hitArea = new Rectangle(-8, -8, 16, 16)
+    handle.cursor = HANDLE_CURSORS[i]
+    handle.on('pointerdown', (e: FederatedPointerEvent) => onHandlePointerDown(e, i))
+    handles.push(handle)
+    handlesLayer.addChild(handle)
+  }
+  app.stage.addChild(world, selectionG, handlesLayer)
 
   app.stage.eventMode = 'static'
   app.stage.hitArea = app.screen
@@ -281,6 +406,8 @@ onBeforeUnmount(() => {
   app = null
   world = null
   selectionG = null
+  handlesLayer = null
+  handles = []
 })
 
 // 数据源任何变化 → 重建场景（画布拖拽期间跳过，由拖拽逻辑直接改容器坐标）
@@ -301,7 +428,7 @@ watch(
     <div
       class="pointer-events-none absolute top-2 left-3 z-10 text-[11px] text-zinc-600 select-none"
     >
-      左键：选中/拖拽元素 · 中键：平移 · 滚轮：缩放
+      左键：选中/拖拽元素 · 拖四角：缩放大小 · 中键：平移 · 滚轮：缩放视图
     </div>
   </div>
 </template>
