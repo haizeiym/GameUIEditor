@@ -42,8 +42,14 @@ async function onNewProject() {
 
 async function onImportProject() {
   try {
-    await project.importProject()
-    ElMessage.success(`已挂载项目 "${project.projectName}"`)
+    const main = await project.importProject()
+    if (main) {
+      // 空文件夹：已自动初始化基础项目结构
+      await editor.loadUIFile(main.handle, main.path)
+      ElMessage.success(`文件夹为空，已自动初始化项目 "${project.projectName}" 并创建 main.json`)
+    } else {
+      ElMessage.success(`已挂载项目 "${project.projectName}"`)
+    }
   } catch (err) {
     if (!isAbort(err)) ElMessage.error(`导入项目失败：${String(err)}`)
   }

@@ -23,17 +23,16 @@ export const useProjectStore = defineStore('project', () => {
     await Promise.all([refreshFileTree(), loadComponentDefs(), refreshAssets()])
   }
 
-  /** 导入项目：授权选择本地文件夹 */
-  async function importProject(): Promise<boolean> {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite', id: 'ui-editor-project' })
-    await mountDirectory(handle)
+  /** 文件夹是否为空（忽略 .DS_Store 等隐藏文件） */
+  async function isDirectoryEmpty(dir: FileSystemDirectoryHandle): Promise<boolean> {
+    for await (const handle of dir.values()) {
+      if (!handle.name.startsWith('.')) return false
+    }
     return true
   }
 
-  /** 新建项目：选择目标文件夹并初始化目录结构，返回默认 UI 文件句柄 */
-  async function newProject(): Promise<{ handle: FileSystemFileHandle; path: string } | null> {
-    const dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'ui-editor-project' })
-
+  /** 初始化项目目录结构：components.json、assets/、基础 main.json，返回 main.json 句柄 */
+  async function initProjectStructure(dir: FileSystemDirectoryHandle): Promise<FileSystemFileHandle> {
     const componentsHandle = await dir.getFileHandle('components.json', { create: true })
     const existing = await (await componentsHandle.getFile()).text()
     if (!existing.trim()) {
@@ -48,7 +47,27 @@ export const useProjectStore = defineStore('project', () => {
       mainHandle = await dir.getFileHandle('main.json', { create: true })
       await writeTextFile(mainHandle, serializeForDisk(createDefaultUIData()))
     }
+    return mainHandle
+  }
 
+  /**
+   * 导入项目：授权选择本地文件夹。
+   * 若文件夹为空，自动初始化目录结构并返回基础 UI 文件供打开；否则返回 null。
+   */
+  async function importProject(): Promise<{ handle: FileSystemFileHandle; path: string } | null> {
+    const dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'ui-editor-project' })
+    let mainHandle: FileSystemFileHandle | null = null
+    if (await isDirectoryEmpty(dir)) {
+      mainHandle = await initProjectStructure(dir)
+    }
+    await mountDirectory(dir)
+    return mainHandle ? { handle: mainHandle, path: 'main.json' } : null
+  }
+
+  /** 新建项目：选择目标文件夹并初始化目录结构，返回默认 UI 文件句柄 */
+  async function newProject(): Promise<{ handle: FileSystemFileHandle; path: string } | null> {
+    const dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'ui-editor-project' })
+    const mainHandle = await initProjectStructure(dir)
     await mountDirectory(dir)
     return { handle: mainHandle, path: 'main.json' }
   }
