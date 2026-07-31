@@ -1,0 +1,15 @@
+{
+    "UIComponent": {
+        "size": { "w": 100, "h": 50 },
+        "anchor": { "x": 0.5, "y": 0.5 }
+    },
+    "OpacityComponent": {
+        "opacity": 1.0
+    },
+    "SpriteComponent": {
+        "color": [1.0, 1.0, 1.0, 1.0],
+        "framePath": "assets/sprite.png",
+        "sizeMode": 0,
+        "type": 1
+    }
+}
