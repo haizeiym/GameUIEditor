@@ -197,7 +197,13 @@ export const useProjectStore = defineStore('project', () => {
   async function importPsd(
     file: File,
     onProgress?: (msg: string) => void,
-  ): Promise<{ handle: FileSystemFileHandle; path: string; layerCount: number }> {
+  ): Promise<{
+    handle: FileSystemFileHandle
+    path: string
+    layerCount: number
+    documentWidth: number
+    documentHeight: number
+  }> {
     if (!dirHandle.value) throw new Error('尚未打开项目')
     onProgress?.('正在解析 PSD 图层…')
     const parsed = await parsePsdFile(file)
@@ -224,6 +230,8 @@ export const useProjectStore = defineStore('project', () => {
       handle: jsonHandle,
       path: parsed.jsonPath,
       layerCount: parsed.layerCount,
+      documentWidth: parsed.documentWidth,
+      documentHeight: parsed.documentHeight,
     }
   }
 

@@ -72,6 +72,24 @@ function toCenterCoords(
 }
 
 /**
+ * 规范化图层透明度到 0–1。
+ * ag-psd 读盘时已做 `byte / 0xff`，值为 0–1；若遇到原始 0–255 字节再除一次。
+ */
+function normalizeLayerOpacity(opacity: number): number {
+  const v = opacity > 1 ? opacity / 255 : opacity
+  return Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000
+}
+
+/** 非完全不透明时挂载 OpacityComponent */
+function applyOpacityComponent(node: UINode, layer: Layer) {
+  if (typeof layer.opacity !== 'number') return
+  const opacity = normalizeLayerOpacity(layer.opacity)
+  // 完全不透明(1)不必挂组件；透明度为 0 也要保留
+  if (opacity >= 1) return
+  node.components['OpacityComponent'] = { opacity }
+}
+
+/**
  * 解析 PSD 文件：导出各图层 PNG，构建 UI JSON。
  * 目录约定：项目/{A}/UI/*.png + 项目/{A}/{A}.json
  */
@@ -103,6 +121,7 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     if (layer.children && layer.children.length > 0) {
       const node = createNode(name, zIndex)
       node.active = !layer.hidden
+      applyOpacityComponent(node, layer)
       const kids: UINode[] = []
       const ordered = [...layer.children].reverse()
       for (let i = 0; i < ordered.length; i++) {
@@ -163,11 +182,7 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     node.x = c.x
     node.y = c.y
 
-    if (typeof layer.opacity === 'number' && layer.opacity < 255) {
-      node.components['OpacityComponent'] = {
-        opacity: Math.round((layer.opacity / 255) * 1000) / 1000,
-      }
-    }
+    applyOpacityComponent(node, layer)
     node.components['SpriteComponent'] = {
       framePath: relativePath,
       color: '#FFFFFF',
@@ -177,15 +192,26 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     return node
   }
 
+  // 根节点尺寸 = 文档分辨率（即设计分辨率）
+  const docW = Math.max(1, Math.round(psd.width))
+  const docH = Math.max(1, Math.round(psd.height))
   const root = createNode('Root')
-  root.width = psd.width
-  root.height = psd.height
+  root.width = docW
+  root.height = docH
+  root.x = 0
+  root.y = 0
 
   const topLayers = [...(psd.children ?? [])].reverse()
   for (let i = 0; i < topLayers.length; i++) {
     const node = await convertLayer(topLayers[i], i)
     if (node) root.children.push(node)
   }
+
+  // 再次锁定根节点尺寸，避免被后续逻辑改写
+  root.width = docW
+  root.height = docH
+  root.x = 0
+  root.y = 0
 
   return {
     baseName,
@@ -194,8 +220,8 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     jsonPath: `${baseName}/${baseName}.json`,
     jsonContent: serializeForDisk(root),
     images,
-    documentWidth: psd.width,
-    documentHeight: psd.height,
+    documentWidth: docW,
+    documentHeight: docH,
     layerCount,
   }
 }

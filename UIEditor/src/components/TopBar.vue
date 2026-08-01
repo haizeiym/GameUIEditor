@@ -150,8 +150,10 @@ async function onImportPsd() {
       const result = await project.importPsd(file)
       loading.close()
       await editor.loadUIFile(result.handle, result.path)
+      // 根节点尺寸 = 分辨率尺寸（PSD 文档宽高）
+      editor.setResolution(result.documentWidth, result.documentHeight)
       ElMessage.success(
-        `PSD 导入完成：${result.path}（${result.layerCount} 个图层图片）`,
+        `PSD 导入完成：${result.path}（${result.layerCount} 个图层图片，分辨率 ${result.documentWidth}×${result.documentHeight}）`,
       )
     } catch (err) {
       loading.close()

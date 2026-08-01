@@ -8,7 +8,7 @@
   },
   "OpacityComponent": {
     "properties": {
-      "opacity": { "type": "number", "default": 1.0 }
+      "opacity": { "type": "number", "default": 255 }
     },
     "componentType": 2
   },
