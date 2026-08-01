@@ -2,10 +2,12 @@
  * 高性能 PSD 解析工具（基于 ag-psd）。
  * 准确解析图层组 / 像素图层，导出 PNG，并生成中心锚点坐标系下的 UI 节点树。
  *
- * 层级规则（不使用 zIndex）：
- * - ag-psd children 为 Photoshop 面板自上而下：[0]=顶层 … [n-1]=底层(BG)
- * - 节点按 PSD 绘制顺序「自下而上」写入 children（先 BG，后顶层）
- * - 画布按 children / addChild 顺序绘制：先出现的在下，后出现的在上
+ * 层级规则（不使用 zIndex，只靠 children 创建顺序）：
+ * - Photoshop 面板自上而下与引擎渲染顺序相反。
+ * - 例：面板自上而下为 Image effects → Visualization → IAPSF → Manipulations → <BG>
+ *   则引擎节点须为 Root → <BG> → Manipulations → IAPSF → Visualization → Image effects
+ * - ag-psd 读盘后的 children 已是引擎顺序（底层在前），创建节点时按该顺序直接 push，禁止再 reverse。
+ * - 画布按 children / addChild 顺序绘制：先出现的在下，后出现的在上。
  */
 import { readPsd, type Layer } from 'ag-psd'
 import type { UINode } from '../types'
@@ -102,18 +104,6 @@ function toParentLocal(kids: UINode[], parentX: number, parentY: number): void {
 }
 
 /**
- * 把 ag-psd 自上而下的图层列表，转为自下而上的生成顺序。
- * 结果：[BG, …, 顶层]，保证 BG 最先创建 = 画布最底层。
- */
-export function orderLayersBottomToTop(layers: readonly Layer[]): Layer[] {
-  const out: Layer[] = []
-  for (let i = layers.length - 1; i >= 0; i--) {
-    out.push(layers[i])
-  }
-  return out
-}
-
-/**
  * 解析 PSD 文件：导出各图层 PNG，构建 UI JSON。
  * 目录约定：项目/{A}/UI/*.png + 项目/{A}/{A}.json
  */
@@ -137,10 +127,16 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     return candidate
   }
 
-  /** 按自下而上顺序转换同级图层，绝不写入/依赖 zIndex */
+  /**
+   * 同级图层：按 ag-psd 已给出的引擎顺序依次创建（底层在前）。
+   * 禁止 reverse；不写入 zIndex。
+   *
+   * 例：面板自上而下 Image effects → … → <BG>
+   *     → 节点 Root → <BG> → … → Image effects
+   */
   const convertChildren = async (layers: readonly Layer[]): Promise<UINode[]> => {
     const kids: UINode[] = []
-    for (const layer of orderLayersBottomToTop(layers)) {
+    for (const layer of layers) {
       const child = await convertLayer(layer)
       if (child) kids.push(child)
     }
@@ -228,7 +224,7 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   root.height = docH
   root.x = 0
   root.y = 0
-  // 自下而上：children[0]=BG(最底) … children[n-1]=顶层；不设置 zIndex
+  // ag-psd 已是引擎顺序：<BG> → Manipulations → IAPSF → Visualization → Image effects
   root.children = await convertChildren(psd.children ?? [])
 
   return {
