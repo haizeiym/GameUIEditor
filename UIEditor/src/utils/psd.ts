@@ -1,6 +1,11 @@
 /**
  * 高性能 PSD 解析工具（基于 ag-psd）。
  * 准确解析图层组 / 像素图层，导出 PNG，并生成中心锚点坐标系下的 UI 节点树。
+ *
+ * 层级规则（不使用 zIndex）：
+ * - ag-psd children 为 Photoshop 面板自上而下：[0]=顶层 … [n-1]=底层(BG)
+ * - 节点按 PSD 绘制顺序「自下而上」写入 children（先 BG，后顶层）
+ * - 画布按 children / addChild 顺序绘制：先出现的在下，后出现的在上
  */
 import { readPsd, type Layer } from 'ag-psd'
 import type { UINode } from '../types'
@@ -84,9 +89,28 @@ function normalizeLayerOpacity(opacity: number): number {
 function applyOpacityComponent(node: UINode, layer: Layer) {
   if (typeof layer.opacity !== 'number') return
   const opacity = normalizeLayerOpacity(layer.opacity)
-  // 完全不透明(1)不必挂组件；透明度为 0 也要保留
   if (opacity >= 1) return
   node.components['OpacityComponent'] = { opacity }
+}
+
+/** 将子节点坐标从「文档中心绝对坐标」转为相对父节点 */
+function toParentLocal(kids: UINode[], parentX: number, parentY: number): void {
+  for (const k of kids) {
+    k.x -= parentX
+    k.y -= parentY
+  }
+}
+
+/**
+ * 把 ag-psd 自上而下的图层列表，转为自下而上的生成顺序。
+ * 结果：[BG, …, 顶层]，保证 BG 最先创建 = 画布最底层。
+ */
+export function orderLayersBottomToTop(layers: readonly Layer[]): Layer[] {
+  const out: Layer[] = []
+  for (let i = layers.length - 1; i >= 0; i--) {
+    out.push(layers[i])
+  }
+  return out
 }
 
 /**
@@ -96,7 +120,6 @@ function applyOpacityComponent(node: UINode, layer: Layer) {
 export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   const baseName = sanitizeFsName(file.name.replace(/\.psd$/i, ''))
   const buffer = await file.arrayBuffer()
-  // 浏览器环境 readPsd 会自动生成 layer.canvas
   const psd = readPsd(buffer)
 
   const images: ParsedPsdLayerImage[] = []
@@ -114,25 +137,30 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     return candidate
   }
 
-  const convertLayer = async (layer: Layer, zIndex: number): Promise<UINode | null> => {
-    const name = layer.name?.trim() || `Layer_${zIndex}`
+  /** 按自下而上顺序转换同级图层，绝不写入/依赖 zIndex */
+  const convertChildren = async (layers: readonly Layer[]): Promise<UINode[]> => {
+    const kids: UINode[] = []
+    for (const layer of orderLayersBottomToTop(layers)) {
+      const child = await convertLayer(layer)
+      if (child) kids.push(child)
+    }
+    return kids
+  }
 
-    // 图层组：递归子图层（PSD 子列表自下而上，反转为自上而下的 zIndex）
+  const convertLayer = async (layer: Layer): Promise<UINode | null> => {
+    const name = layer.name?.trim() || 'Layer'
+
+    // 图层组
     if (layer.children && layer.children.length > 0) {
-      const node = createNode(name, zIndex)
+      const node = createNode(name)
       node.active = !layer.hidden
       applyOpacityComponent(node, layer)
-      const kids: UINode[] = []
-      const ordered = [...layer.children].reverse()
-      for (let i = 0; i < ordered.length; i++) {
-        const child = await convertLayer(ordered[i], i)
-        if (child) kids.push(child)
-      }
+
+      const kids = await convertChildren(layer.children)
       if (!kids.length) return null
       node.children = kids
 
       const b = layerBounds(layer)
-      // 组若无有效包围盒，用子节点估算
       if (b.width <= 1 && b.height <= 1 && kids.length) {
         let minX = Infinity
         let minY = Infinity
@@ -155,10 +183,11 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
         node.x = c.x
         node.y = c.y
       }
+      toParentLocal(kids, node.x, node.y)
       return node
     }
 
-    // 像素图层：需要 canvas
+    // 像素图层
     if (!layer.canvas) return null
 
     const b = layerBounds(layer, layer.canvas)
@@ -174,7 +203,7 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     })
     layerCount += 1
 
-    const node = createNode(name, zIndex)
+    const node = createNode(name)
     node.active = !layer.hidden
     node.width = b.width
     node.height = b.height
@@ -192,7 +221,6 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     return node
   }
 
-  // 根节点尺寸 = 文档分辨率（即设计分辨率）
   const docW = Math.max(1, Math.round(psd.width))
   const docH = Math.max(1, Math.round(psd.height))
   const root = createNode('Root')
@@ -200,18 +228,8 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   root.height = docH
   root.x = 0
   root.y = 0
-
-  const topLayers = [...(psd.children ?? [])].reverse()
-  for (let i = 0; i < topLayers.length; i++) {
-    const node = await convertLayer(topLayers[i], i)
-    if (node) root.children.push(node)
-  }
-
-  // 再次锁定根节点尺寸，避免被后续逻辑改写
-  root.width = docW
-  root.height = docH
-  root.x = 0
-  root.y = 0
+  // 自下而上：children[0]=BG(最底) … children[n-1]=顶层；不设置 zIndex
+  root.children = await convertChildren(psd.children ?? [])
 
   return {
     baseName,

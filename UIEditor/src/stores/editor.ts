@@ -265,7 +265,7 @@ export const useEditorStore = defineStore('editor', () => {
     }
   }
 
-  /** 节点树拖拽结束后：按新顺序重排 zIndex 并提交历史 */
+  /** 节点树拖拽结束后：按新顺序重排 zIndex 并提交历史（下标越大越靠上） */
   function afterTreeDrop() {
     if (!currentUIData.value) return
     const walk = (n: UINode) => {

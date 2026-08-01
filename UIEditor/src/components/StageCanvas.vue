@@ -82,8 +82,8 @@ function buildNode(node: UINode): Container {
   c.label = node._id
   c.position.set(node.x, node.y)
   c.visible = node.active
-  c.zIndex = node.zIndex
-  c.sortableChildren = true
+  // 同级绘制顺序只跟 children / addChild 顺序走，不按 zIndex 重排
+  c.sortableChildren = false
   // 禁用 Pixi 自带交互，统一走舞台级精确命中
   c.eventMode = 'none'
   c.interactiveChildren = false
@@ -99,7 +99,7 @@ function buildNode(node: UINode): Container {
   const framePath = typeof spriteComp?.framePath === 'string' ? spriteComp.framePath : ''
   if (spriteComp && framePath) {
     const sp = new Sprite(Texture.EMPTY)
-    sp.zIndex = -100000
+    sp.label = '__self'
     sp.eventMode = 'none'
     sp.tint = toTint(spriteComp.color)
     sp.anchor.set(0.5)
@@ -109,18 +109,19 @@ function buildNode(node: UINode): Container {
       sp.width = node.width
       sp.height = node.height
     })
+    // 先加自身图，再加子节点，保证子节点盖在精灵之上
     c.addChild(sp)
   } else {
     const g = new Graphics()
       .rect(lr.x, lr.y, node.width, node.height)
       .fill({ color: 0x4a90d9, alpha: 0.07 })
       .stroke({ color: 0x8899aa, width: 1, alpha: 0.35 })
-    g.zIndex = -100000
+    g.label = '__self'
     g.eventMode = 'none'
     c.addChild(g)
   }
 
-  // 子节点单独开启 interactiveChildren，便于容器层级正确
+  // 按 children 顺序 addChild：先出现的在下，后出现的在上（与 PSD 自下而上创建一致）
   c.interactiveChildren = true
   for (const child of node.children) {
     c.addChild(buildNode(child))
@@ -180,11 +181,12 @@ function syncNodeVisual(c: Container, node: UINode) {
   c.position.set(node.x, node.y)
   const lr = localRect(node.width, node.height)
   for (const child of c.children) {
-    if (child instanceof Sprite && child.zIndex <= -100000) {
+    if (child.label !== '__self') continue
+    if (child instanceof Sprite) {
       child.anchor.set(0.5)
       child.width = node.width
       child.height = node.height
-    } else if (child instanceof Graphics && child.zIndex <= -100000) {
+    } else if (child instanceof Graphics) {
       child
         .clear()
         .rect(lr.x, lr.y, node.width, node.height)
@@ -228,25 +230,24 @@ interface HitCandidate {
   node: UINode
   depth: number
   area: number
-  zIndex: number
+  /** 同级 children 下标：越大越靠上（与 addChild 顺序一致，不用 zIndex） */
+  siblingIndex: number
 }
 
 /**
  * 收集所有包含点击点的节点，再按：
  * 1) 深度更深优先（子节点压过父节点 / Root）
  * 2) 同深度时面积更小优先（更精确的小节点）
- * 3) 再比 zIndex
- * 彻底修复 Root→Node1→Node2 点击 Node2 却选中 Root 的问题。
+ * 3) 同级 children 下标更大优先（后创建的在上，不用 zIndex）
  */
 function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | null {
   const hits: HitCandidate[] = []
-  const walk = (node: UINode, depth: number) => {
+  const walk = (node: UINode, depth: number, siblingIndex: number) => {
     const c = idMap.get(node._id)
     if (!c || c.destroyed) return
 
-    // 先递归全部子孙，再测自己 —— 保证深度信息完整
-    for (const child of node.children) {
-      walk(child, depth + 1)
+    for (let i = 0; i < node.children.length; i++) {
+      walk(node.children[i], depth + 1, i)
     }
 
     if (containsStagePoint(node, c, stageX, stageY)) {
@@ -254,19 +255,18 @@ function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | nu
         node,
         depth,
         area: Math.max(node.width, 1) * Math.max(node.height, 1),
-        zIndex: node.zIndex,
+        siblingIndex,
       })
     }
   }
-  walk(root, 0)
+  walk(root, 0, 0)
 
   if (!hits.length) return null
 
-  // 深度更深 > 面积更小 > zIndex 更大
   hits.sort((a, b) => {
     if (b.depth !== a.depth) return b.depth - a.depth
     if (a.area !== b.area) return a.area - b.area
-    return b.zIndex - a.zIndex
+    return b.siblingIndex - a.siblingIndex
   })
   return hits[0].node
 }
