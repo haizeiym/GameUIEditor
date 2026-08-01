@@ -24,7 +24,8 @@ function resolveSizeMode(v: unknown): number {
     if (key in SizeMode) return SizeMode[key]
   }
   if (typeof v === 'number' && v >= 0 && v <= 2) return v
-  return SizeMode.CUSTOM
+  // 与 components.json 默认 TRIMMED 一致
+  return SizeMode.TRIMMED
 }
 
 function resolveSpriteType(v: unknown): number {

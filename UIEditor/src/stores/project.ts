@@ -105,17 +105,20 @@ export const useProjectStore = defineStore('project', () => {
     fileTree.value = await buildFileTree(dirHandle.value)
   }
 
-  /** 确保 Sprite.sizeMode / type 为固定 label 枚举（兼容旧 number 定义） */
+  /**
+   * Sprite.sizeMode / type：始终与 config 默认对齐（options + default），
+   * 避免项目内旧 components.json 仍写 default:CUSTOM 导致新建组件不是 TRIMMED。
+   */
   function normalizeSpriteEnumDefs(defs: ComponentDefs): ComponentDefs {
     const defaults = parseComponentDefs(DEFAULT_COMPONENTS_JSON).SpriteComponent?.properties
     const sprite = defs.SpriteComponent
     if (!sprite?.properties || !defaults) return defs
     for (const key of ['sizeMode', 'type'] as const) {
-      const cur = sprite.properties[key]
       const want = defaults[key]
       if (!want) continue
-      if (!cur || cur.type !== 'enum' || !cur.options?.length) {
-        sprite.properties[key] = { ...want, options: want.options ? [...want.options] : [] }
+      sprite.properties[key] = {
+        ...want,
+        options: want.options ? want.options.map((o) => ({ ...o })) : [],
       }
     }
     return defs

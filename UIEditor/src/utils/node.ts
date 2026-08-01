@@ -154,6 +154,16 @@ export function defaultValueForProp(def: PropDef): unknown {
       return typeof def.default === 'string' ? def.default : '#FFFFFF'
     case 'v2':
       return parseVec2(def.default)
+    case 'enum': {
+      const opts = def.options ?? []
+      if (typeof def.default === 'string' || typeof def.default === 'number') {
+        const hit = opts.find((o) => o.value === def.default || o.label === def.default)
+        if (hit) return hit.value
+        // 允许 default 直接是合法 value
+        if (typeof def.default === 'string') return def.default
+      }
+      return opts[0]?.value ?? null
+    }
     default:
       return def.default ?? null
   }

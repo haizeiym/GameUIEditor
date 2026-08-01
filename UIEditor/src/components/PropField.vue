@@ -25,20 +25,26 @@ const numValue = computed({
   set: (v: number | undefined) => emit('update:modelValue', v ?? 0),
 })
 
-/** enum：只允许 options 内的 value（即 label 名）；兼容旧数字下标 */
+/** enum：只允许 options 内的 value（即 label 名）；缺省用 def.default，兼容旧数字下标 */
 const enumValue = computed({
   get: () => {
     const opts = props.def.options ?? []
     if (!opts.length) return ''
+    const fallback =
+      typeof props.def.default === 'string'
+        ? (opts.find((o) => o.value === props.def.default || o.label === props.def.default)?.value ??
+          props.def.default)
+        : opts[0].value
     const v = props.modelValue
+    if (v === undefined || v === null || v === '') return fallback
     if (typeof v === 'string') {
       const hit = opts.find((o) => o.value === v || o.label === v)
-      return hit?.value ?? opts[0].value
+      return hit?.value ?? fallback
     }
     if (typeof v === 'number' && v >= 0 && v < opts.length) {
       return opts[v].value
     }
-    return opts[0].value
+    return fallback
   },
   set: (v: string) => {
     const opts = props.def.options ?? []
