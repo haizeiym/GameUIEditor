@@ -322,6 +322,7 @@ let dragging: {
   moved: boolean
 } | null = null
 
+/** 视图平移：拖背景/Root/中键时移动整个 world（画布框+准星+节点一起动） */
 let panning: { pointerX: number; pointerY: number; worldX: number; worldY: number } | null = null
 
 let resizing: {
@@ -411,11 +412,46 @@ function beginDrag(id: string, stageX: number, stageY: number) {
   dragging = { id, startX: node.x, startY: node.y, localX: local.x, localY: local.y, moved: false }
 }
 
+function beginPan(clientX: number, clientY: number) {
+  if (!world) return
+  userAdjustedView = true
+  panning = {
+    pointerX: clientX,
+    pointerY: clientY,
+    worldX: world.x,
+    worldY: world.y,
+  }
+  setCanvasCursor('grabbing')
+}
+
+function setCanvasCursor(cursor: string) {
+  if (wrapEl.value) wrapEl.value.style.cursor = cursor
+  if (app?.canvas) app.canvas.style.cursor = cursor
+}
+
+/** 悬停在背景/Root 上显示 grab，悬停在子节点上恢复默认 */
+function updateHoverCursor(e: FederatedPointerEvent) {
+  if (panning || dragging || resizing) return
+  const root = editor.currentUIData as UINode | null
+  if (!root || !app) {
+    setCanvasCursor('grab')
+    return
+  }
+  const stage = clientToStage(e.clientX, e.clientY)
+  const hit = pickBestNode(root, stage.x, stage.y)
+  if (!hit || hit._id === root._id) {
+    setCanvasCursor('grab')
+  } else {
+    setCanvasCursor('default')
+  }
+}
+
 function onStagePointerDown(e: FederatedPointerEvent) {
   if (!app || !world) return
+
+  // 中键：平移视图
   if (e.button === 1) {
-    userAdjustedView = true
-    panning = { pointerX: e.global.x, pointerY: e.global.y, worldX: world.x, worldY: world.y }
+    beginPan(e.clientX, e.clientY)
     return
   }
   if (e.button !== 0) return
@@ -426,26 +462,32 @@ function onStagePointerDown(e: FederatedPointerEvent) {
   const root = editor.currentUIData as UINode | null
   if (!root) {
     editor.selectedId = null
+    beginPan(e.clientX, e.clientY)
     return
   }
 
   // 用 DOM 客户区坐标换算，避免 autoDensity / 事件目标导致的 global 偏差
   const stage = clientToStage(e.clientX, e.clientY)
   const hit = pickBestNode(root, stage.x, stage.y)
-  if (hit) {
-    editor.selectedId = hit._id
-    beginDrag(hit._id, stage.x, stage.y)
-  } else {
-    editor.selectedId = null
+
+  // 空白处或 Root（设计画布背景）：左键拖动平移整个画布视图
+  if (!hit || hit._id === root._id) {
+    editor.selectedId = hit?._id ?? null
     dragging = null
+    beginPan(e.clientX, e.clientY)
+    return
   }
+
+  // 子节点：选中并拖拽改坐标
+  editor.selectedId = hit._id
+  beginDrag(hit._id, stage.x, stage.y)
 }
 
 function onStagePointerMove(e: FederatedPointerEvent) {
   if (panning && world) {
     world.position.set(
-      panning.worldX + (e.global.x - panning.pointerX),
-      panning.worldY + (e.global.y - panning.pointerY),
+      panning.worldX + (e.clientX - panning.pointerX),
+      panning.worldY + (e.clientY - panning.pointerY),
     )
     return
   }
@@ -453,7 +495,10 @@ function onStagePointerMove(e: FederatedPointerEvent) {
     applyResize(e)
     return
   }
-  if (!dragging) return
+  if (!dragging) {
+    updateHoverCursor(e)
+    return
+  }
   const c = idMap.get(dragging.id)
   const node = findNodeById(editor.currentUIData as UINode | null, dragging.id)
   if (!c || !c.parent || !node) return
@@ -468,8 +513,13 @@ function onStagePointerMove(e: FederatedPointerEvent) {
   dragging.moved = true
 }
 
-function onStagePointerUp() {
-  panning = null
+function onStagePointerUp(e?: FederatedPointerEvent) {
+  if (panning) {
+    panning = null
+    if (e) updateHoverCursor(e)
+    else setCanvasCursor('grab')
+    return
+  }
   if (resizing) {
     const resized = resizing.moved
     resizing = null
@@ -554,6 +604,7 @@ onMounted(async () => {
   app.stage.on('pointerup', onStagePointerUp)
   app.stage.on('pointerupoutside', onStagePointerUp)
   app.ticker.add(updateSelectionOutline)
+  setCanvasCursor('grab')
 
   wrapEl.value.addEventListener('wheel', onWheel, { passive: false })
 
@@ -620,7 +671,7 @@ watch(
     <div
       class="pointer-events-none absolute top-2 left-3 z-10 text-[11px] text-zinc-600 select-none"
     >
-      原点(0,0)=视口正中央 · 左键选中/拖拽 · 拖四角缩放 · 中键平移 · 滚轮缩放
+      原点默认正中央 · 拖背景/Root平移画布 · 拖子节点移动 · 拖四角缩放 · 滚轮缩放
     </div>
     <div
       class="pointer-events-none absolute top-2 right-3 z-10 text-[11px] text-zinc-500 select-none"
