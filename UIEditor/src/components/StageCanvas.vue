@@ -4,12 +4,37 @@ import {
   Application,
   Container,
   Graphics,
+  NineSliceSprite,
   Point,
   Rectangle,
   Sprite,
   Texture,
+  TilingSprite,
   type FederatedPointerEvent,
 } from 'pixi.js'
+
+/** 对齐 Cocos Sprite.SizeMode（JSON 存 label 名） */
+const SizeMode = { CUSTOM: 0, TRIMMED: 1, RAW: 2 } as const
+/** 对齐 Cocos Sprite.Type（JSON 存 label 名） */
+const SpriteType = { SIMPLE: 0, SLICED: 1, TILED: 2, FILLED: 3 } as const
+
+function resolveSizeMode(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase() as keyof typeof SizeMode
+    if (key in SizeMode) return SizeMode[key]
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 2) return v
+  return SizeMode.CUSTOM
+}
+
+function resolveSpriteType(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase() as keyof typeof SpriteType
+    if (key in SpriteType) return SpriteType[key]
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 3) return v
+  return SpriteType.SIMPLE
+}
 import type { UINode } from '../types'
 import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
@@ -60,6 +85,39 @@ function loadTexture(path: string): Promise<Texture | null> {
   return cached
 }
 
+/** 按 sizeMode 决定显示宽高（CUSTOM=节点尺寸，TRIMMED/RAW=贴图尺寸） */
+function resolveSpriteSize(
+  node: UINode,
+  texture: Texture,
+  sizeMode: number,
+): { w: number; h: number } {
+  if (sizeMode === SizeMode.TRIMMED) {
+    return {
+      w: Math.max(1, texture.frame?.width ?? texture.width),
+      h: Math.max(1, texture.frame?.height ?? texture.height),
+    }
+  }
+  if (sizeMode === SizeMode.RAW) {
+    const src = texture.source
+    return {
+      w: Math.max(1, src?.width ?? texture.width),
+      h: Math.max(1, src?.height ?? texture.height),
+    }
+  }
+  return { w: Math.max(1, node.width), h: Math.max(1, node.height) }
+}
+
+function applySpriteVisualSize(
+  display: Sprite | NineSliceSprite | TilingSprite,
+  node: UINode,
+  texture: Texture,
+  sizeMode: number,
+) {
+  const { w, h } = resolveSpriteSize(node, texture, sizeMode)
+  display.width = w
+  display.height = h
+}
+
 function toTint(color: unknown): number {
   if (typeof color === 'string' && /^#[0-9a-fA-F]{6}/.test(color)) {
     return parseInt(color.slice(1, 7), 16)
@@ -98,19 +156,54 @@ function buildNode(node: UINode): Container {
   const spriteComp = node.components['SpriteComponent']
   const framePath = typeof spriteComp?.framePath === 'string' ? spriteComp.framePath : ''
   if (spriteComp && framePath) {
-    const sp = new Sprite(Texture.EMPTY)
-    sp.label = '__self'
-    sp.eventMode = 'none'
-    sp.tint = toTint(spriteComp.color)
-    sp.anchor.set(0.5)
+    const sizeMode = resolveSizeMode(spriteComp.sizeMode)
+    const spriteType = resolveSpriteType(spriteComp.type)
+    const tint = toTint(spriteComp.color)
+
+    // 占位，贴图加载后再按 type 换成 NineSlice / Tiling
+    const placeholder = new Sprite(Texture.EMPTY)
+    placeholder.label = '__self'
+    placeholder.eventMode = 'none'
+    placeholder.anchor.set(0.5)
+    placeholder.tint = tint
+    placeholder.width = Math.max(1, node.width)
+    placeholder.height = Math.max(1, node.height)
+    c.addChild(placeholder)
+
     void loadTexture(framePath).then((texture) => {
-      if (!texture || sp.destroyed) return
-      sp.texture = texture
-      sp.width = node.width
-      sp.height = node.height
+      if (!texture || c.destroyed) return
+      const parent = placeholder.parent
+      if (!parent) return
+      const idx = parent.getChildIndex(placeholder)
+      placeholder.destroy()
+
+      let display: Sprite | NineSliceSprite | TilingSprite
+      if (spriteType === SpriteType.SLICED) {
+        const tw = Math.max(1, texture.width)
+        const th = Math.max(1, texture.height)
+        display = new NineSliceSprite({
+          texture,
+          leftWidth: tw / 3,
+          topHeight: th / 3,
+          rightWidth: tw / 3,
+          bottomHeight: th / 3,
+        })
+        display.anchor.set(0.5)
+      } else if (spriteType === SpriteType.TILED) {
+        const { w, h } = resolveSpriteSize(node, texture, sizeMode)
+        display = new TilingSprite({ texture, width: w, height: h })
+        display.anchor.set(0.5)
+      } else {
+        // SIMPLE / FILLED（编辑器预览：FILLED 暂按 SIMPLE 拉伸）
+        display = new Sprite(texture)
+        display.anchor.set(0.5)
+      }
+      display.label = '__self'
+      display.eventMode = 'none'
+      display.tint = tint
+      applySpriteVisualSize(display, node, texture, sizeMode)
+      parent.addChildAt(display, idx)
     })
-    // 先加自身图，再加子节点，保证子节点盖在精灵之上
-    c.addChild(sp)
   } else {
     const g = new Graphics()
       .rect(lr.x, lr.y, node.width, node.height)
@@ -180,12 +273,21 @@ function rebuild() {
 function syncNodeVisual(c: Container, node: UINode) {
   c.position.set(node.x, node.y)
   const lr = localRect(node.width, node.height)
+  const spriteComp = node.components['SpriteComponent']
+  const sizeMode = resolveSizeMode(spriteComp?.sizeMode)
   for (const child of c.children) {
     if (child.label !== '__self') continue
-    if (child instanceof Sprite) {
-      child.anchor.set(0.5)
-      child.width = node.width
-      child.height = node.height
+    if (child instanceof Sprite || child instanceof NineSliceSprite || child instanceof TilingSprite) {
+      const tex = child.texture
+      if (tex && tex !== Texture.EMPTY) {
+        applySpriteVisualSize(child, node, tex, sizeMode)
+      } else {
+        child.width = Math.max(1, node.width)
+        child.height = Math.max(1, node.height)
+      }
+      if ('tint' in child && spriteComp) {
+        ;(child as Sprite).tint = toTint(spriteComp.color)
+      }
     } else if (child instanceof Graphics) {
       child
         .clear()

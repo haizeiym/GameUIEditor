@@ -18,7 +18,13 @@ export interface UINode {
 }
 
 /** components.json 中支持的属性类型 */
-export type PropType = 'string' | 'number' | 'boolean' | 'color' | 'v2'
+export type PropType = 'string' | 'number' | 'boolean' | 'color' | 'v2' | 'enum'
+
+export interface EnumOption {
+  label: string
+  /** 与 label 一致的固定枚举名，如 "CUSTOM" / "SIMPLE" */
+  value: string
+}
 
 export interface PropDef {
   type: PropType
@@ -26,6 +32,8 @@ export interface PropDef {
   min?: number
   max?: number
   step?: number
+  /** type=enum 时的下拉选项（如 Sprite.sizeMode / Sprite.type） */
+  options?: EnumOption[]
 }
 
 export interface ComponentDef {

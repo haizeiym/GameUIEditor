@@ -239,8 +239,8 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     node.components['SpriteComponent'] = {
       framePath: relativePath,
       color: '#FFFFFF',
-      sizeMode: 2,
-      type: 1,
+      sizeMode: 'CUSTOM',
+      type: 'SIMPLE',
     }
     return node
   }

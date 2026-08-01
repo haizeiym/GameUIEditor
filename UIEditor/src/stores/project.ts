@@ -105,13 +105,30 @@ export const useProjectStore = defineStore('project', () => {
     fileTree.value = await buildFileTree(dirHandle.value)
   }
 
+  /** 确保 Sprite.sizeMode / type 为固定 label 枚举（兼容旧 number 定义） */
+  function normalizeSpriteEnumDefs(defs: ComponentDefs): ComponentDefs {
+    const defaults = parseComponentDefs(DEFAULT_COMPONENTS_JSON).SpriteComponent?.properties
+    const sprite = defs.SpriteComponent
+    if (!sprite?.properties || !defaults) return defs
+    for (const key of ['sizeMode', 'type'] as const) {
+      const cur = sprite.properties[key]
+      const want = defaults[key]
+      if (!want) continue
+      if (!cur || cur.type !== 'enum' || !cur.options?.length) {
+        sprite.properties[key] = { ...want, options: want.options ? [...want.options] : [] }
+      }
+    }
+    return defs
+  }
+
   async function loadComponentDefs() {
     if (!dirHandle.value) return
     try {
       const handle = await dirHandle.value.getFileHandle('components.json')
       const text = await readTextFile(handle)
-      componentDefs.value = parseComponentDefs(text)
-      componentDefsText.value = text
+      const parsed = normalizeSpriteEnumDefs(parseComponentDefs(text))
+      componentDefs.value = parsed
+      componentDefsText.value = JSON.stringify(parsed, null, 2) + '\n'
     } catch {
       // 项目内没有 components.json 时沿用内置默认组件库
       componentDefs.value = parseComponentDefs(DEFAULT_COMPONENTS_JSON)

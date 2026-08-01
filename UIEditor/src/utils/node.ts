@@ -196,13 +196,6 @@ export function parseComponentDefs(text: string): ComponentDefs {
  * 内置兜底组件库：当 `config/components.json` 不存在时使用。
  */
 const FALLBACK_COMPONENTS_JSON = `{
-  "UIComponent": {
-    "properties": {
-      "size": { "type": "v2", "default": "(100,50)" },
-      "anchor": { "type": "v2", "default": "(0.5,0.5)" }
-    },
-    "componentType": 0
-  },
   "OpacityComponent": {
     "properties": {
       "opacity": { "type": "number", "default": 1.0, "min": 0, "max": 1, "step": 0.05 }
@@ -213,10 +206,26 @@ const FALLBACK_COMPONENTS_JSON = `{
     "properties": {
       "framePath": { "type": "string", "default": "" },
       "color": { "type": "color", "default": "#FFFFFF" },
-      "sizeMode": { "type": "number", "default": 2 },
-      "type": { "type": "number", "default": 1 }
+      "sizeMode": {
+        "type": "enum",
+        "default": "CUSTOM",
+        "options": [
+          { "label": "CUSTOM", "value": "CUSTOM" },
+          { "label": "TRIMMED", "value": "TRIMMED" },
+          { "label": "RAW", "value": "RAW" }
+        ]
+      },
+      "type": {
+        "type": "enum",
+        "default": "SIMPLE",
+        "options": [
+          { "label": "SIMPLE", "value": "SIMPLE" },
+          { "label": "SLICED", "value": "SLICED" },
+          { "label": "TILED", "value": "TILED" },
+          { "label": "FILLED", "value": "FILLED" }
+        ]
+      }
     },
-    "prefix": "Img",
     "componentType": 1
   }
 }

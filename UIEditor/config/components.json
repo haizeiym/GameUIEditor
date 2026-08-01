@@ -9,8 +9,25 @@
     "properties": {
       "framePath": { "type": "string", "default": "" },
       "color": { "type": "color", "default": "#FFFFFF" },
-      "sizeMode": { "type": "number", "default": 2 },
-      "type": { "type": "number", "default": 1 }
+      "sizeMode": {
+        "type": "enum",
+        "default": "CUSTOM",
+        "options": [
+          { "label": "CUSTOM", "value": "CUSTOM" },
+          { "label": "TRIMMED", "value": "TRIMMED" },
+          { "label": "RAW", "value": "RAW" }
+        ]
+      },
+      "type": {
+        "type": "enum",
+        "default": "SIMPLE",
+        "options": [
+          { "label": "SIMPLE", "value": "SIMPLE" },
+          { "label": "SLICED", "value": "SLICED" },
+          { "label": "TILED", "value": "TILED" },
+          { "label": "FILLED", "value": "FILLED" }
+        ]
+      }
     },
     "prefix": "Img",
     "componentType": 1
