@@ -123,6 +123,44 @@ function onConfirmResolution() {
   resolutionDialogVisible.value = false
   ElMessage.success(`分辨率已设为 ${editor.resolutionLabel}`)
 }
+
+async function onImportPsd() {
+  if (!project.dirHandle) {
+    ElMessage.warning('请先新建或导入项目')
+    return
+  }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [
+        {
+          description: 'Photoshop PSD',
+          accept: { 'image/vnd.adobe.photoshop': ['.psd'], 'application/octet-stream': ['.psd'] },
+        },
+      ],
+      excludeAcceptAllOption: false,
+    })
+    const file = await handle.getFile()
+    const loading = ElMessage({
+      message: `正在导入 PSD「${file.name}」并解析图层…`,
+      type: 'info',
+      duration: 0,
+      showClose: false,
+    })
+    try {
+      const result = await project.importPsd(file)
+      loading.close()
+      await editor.loadUIFile(result.handle, result.path)
+      ElMessage.success(
+        `PSD 导入完成：${result.path}（${result.layerCount} 个图层图片）`,
+      )
+    } catch (err) {
+      loading.close()
+      throw err
+    }
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导入 PSD 失败：${String(err)}`)
+  }
+}
 </script>
 
 <template>
@@ -149,6 +187,13 @@ function onConfirmResolution() {
       </el-button>
       <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
         设置分辨率
+      </el-button>
+      <el-button
+        :disabled="!project.dirHandle"
+        title="解析图层为图片并生成 UI JSON"
+        @click="onImportPsd"
+      >
+        导入PSD
       </el-button>
     </el-button-group>
 

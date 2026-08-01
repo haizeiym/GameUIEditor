@@ -18,6 +18,15 @@ export async function writeTextFile(handle: FileSystemFileHandle, text: string):
   await writable.close()
 }
 
+export async function writeBinaryFile(
+  handle: FileSystemFileHandle,
+  data: BufferSource | Blob,
+): Promise<void> {
+  const writable = await handle.createWritable()
+  await writable.write(data)
+  await writable.close()
+}
+
 /** 按项目相对路径获取文件句柄，如 "assets/icon.png" */
 export async function getFileHandleByPath(
   root: FileSystemDirectoryHandle,
@@ -35,6 +44,39 @@ export async function getFileHandleByPath(
   } catch {
     return null
   }
+}
+
+/** 按项目相对路径获取目录句柄，如 "A/UI" */
+export async function getDirectoryHandleByPath(
+  root: FileSystemDirectoryHandle,
+  path: string,
+  create = false,
+): Promise<FileSystemDirectoryHandle | null> {
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length === 0) return root
+  try {
+    let dir = root
+    for (const part of parts) {
+      dir = await dir.getDirectoryHandle(part, { create })
+    }
+    return dir
+  } catch {
+    return null
+  }
+}
+
+/** 删除项目相对路径上的文件或文件夹（文件夹递归删除） */
+export async function removeEntryByPath(
+  root: FileSystemDirectoryHandle,
+  path: string,
+): Promise<void> {
+  const parts = path.split('/').filter(Boolean)
+  if (parts.length === 0) throw new Error('不能删除项目根目录')
+  let dir = root
+  for (let i = 0; i < parts.length - 1; i++) {
+    dir = await dir.getDirectoryHandle(parts[i])
+  }
+  await dir.removeEntry(parts[parts.length - 1], { recursive: true })
 }
 
 function shouldSkip(name: string): boolean {

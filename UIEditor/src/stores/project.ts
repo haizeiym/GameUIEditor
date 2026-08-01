@@ -1,8 +1,18 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import type { AssetEntry, ComponentDefs, FileEntry } from '../types'
-import { buildFileTree, collectImages, getFileHandleByPath, readTextFile, writeTextFile } from '../utils/fs'
+import {
+  buildFileTree,
+  collectImages,
+  getDirectoryHandleByPath,
+  getFileHandleByPath,
+  readTextFile,
+  removeEntryByPath,
+  writeBinaryFile,
+  writeTextFile,
+} from '../utils/fs'
 import { DEFAULT_COMPONENTS_JSON, createDefaultUIData, parseComponentDefs, serializeForDisk } from '../utils/node'
+import { parsePsdFile, sanitizeFsName } from '../utils/psd'
 
 /** 项目级状态：目录句柄、文件树、组件库定义、图片资产 */
 export const useProjectStore = defineStore('project', () => {
@@ -152,6 +162,71 @@ export const useProjectStore = defineStore('project', () => {
     return handle
   }
 
+  /**
+   * 新建文件夹。
+   * @param parentPath 父目录项目相对路径，空字符串表示项目根
+   * @param name 文件夹名
+   */
+  async function createFolder(parentPath: string, name: string): Promise<string> {
+    if (!dirHandle.value) throw new Error('尚未打开项目')
+    const safe = sanitizeFsName(name)
+    const fullPath = parentPath ? `${parentPath}/${safe}` : safe
+    const handle = await getDirectoryHandleByPath(dirHandle.value, fullPath, true)
+    if (!handle) throw new Error(`无法创建文件夹 ${fullPath}`)
+    await refreshFileTree()
+    return fullPath
+  }
+
+  /** 删除文件或文件夹（递归）；若删的是当前资源过滤目录则清空过滤 */
+  async function deleteEntry(path: string): Promise<void> {
+    if (!dirHandle.value) throw new Error('尚未打开项目')
+    await removeEntryByPath(dirHandle.value, path)
+    if (
+      assetFolderFilter.value === path ||
+      assetFolderFilter.value.startsWith(`${path}/`)
+    ) {
+      assetFolderFilter.value = ''
+    }
+    await Promise.all([refreshFileTree(), refreshAssets(true)])
+  }
+
+  /**
+   * 导入 PSD：解析图层为 PNG 写入 {A}/UI/，并生成 {A}/{A}.json UI 界面。
+   * 返回创建的 JSON 文件句柄与路径，供编辑器直接打开。
+   */
+  async function importPsd(
+    file: File,
+    onProgress?: (msg: string) => void,
+  ): Promise<{ handle: FileSystemFileHandle; path: string; layerCount: number }> {
+    if (!dirHandle.value) throw new Error('尚未打开项目')
+    onProgress?.('正在解析 PSD 图层…')
+    const parsed = await parsePsdFile(file)
+
+    onProgress?.(`正在创建目录 ${parsed.folderPath}/UI …`)
+    await getDirectoryHandleByPath(dirHandle.value, parsed.uiFolderPath, true)
+
+    // 若同名 JSON 已存在则覆盖；图片同名也会覆盖
+    for (let i = 0; i < parsed.images.length; i++) {
+      const img = parsed.images[i]
+      onProgress?.(`正在导出图片 (${i + 1}/${parsed.images.length}) ${img.fileName}`)
+      const fh = await getFileHandleByPath(dirHandle.value, img.relativePath, true)
+      if (!fh) throw new Error(`无法写入 ${img.relativePath}`)
+      await writeBinaryFile(fh, img.blob)
+    }
+
+    onProgress?.(`正在写入界面 ${parsed.jsonPath}`)
+    const jsonHandle = await getFileHandleByPath(dirHandle.value, parsed.jsonPath, true)
+    if (!jsonHandle) throw new Error(`无法写入 ${parsed.jsonPath}`)
+    await writeTextFile(jsonHandle, parsed.jsonContent)
+
+    await Promise.all([refreshFileTree(), refreshAssets(true)])
+    return {
+      handle: jsonHandle,
+      path: parsed.jsonPath,
+      layerCount: parsed.layerCount,
+    }
+  }
+
   return {
     dirHandle,
     projectName,
@@ -170,6 +245,9 @@ export const useProjectStore = defineStore('project', () => {
     refreshAssets,
     getFileByPath,
     createProjectFile,
+    createFolder,
+    deleteEntry,
+    importPsd,
     setAssetFolderFilter,
     clearAssetFolderFilter,
   }

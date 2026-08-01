@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "ag-psd": "^31.0.2",
     "element-plus": "^2.14.3",
     "pinia": "^4.0.2",
     "pixi.js": "^8.19.0",
