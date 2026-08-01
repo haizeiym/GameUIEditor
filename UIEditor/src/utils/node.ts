@@ -208,7 +208,7 @@ const FALLBACK_COMPONENTS_JSON = `{
       "color": { "type": "color", "default": "#FFFFFF" },
       "sizeMode": {
         "type": "enum",
-        "default": "CUSTOM",
+        "default": "TRIMMED",
         "options": [
           { "label": "CUSTOM", "value": "CUSTOM" },
           { "label": "TRIMMED", "value": "TRIMMED" },
