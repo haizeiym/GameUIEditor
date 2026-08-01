@@ -8,6 +8,8 @@
  *   则引擎节点须为 Root → <BG> → Manipulations → IAPSF → Visualization → Image effects
  * - ag-psd 读盘后的 children 已是引擎顺序（底层在前），创建节点时按该顺序直接 push，禁止再 reverse。
  * - 画布按 children / addChild 顺序绘制：先出现的在下，后出现的在上。
+ *
+ * 尺寸 / 位置：与 PS 图层像素框一致（width/height = 图层像素；x/y 为相对文档中心的中心锚点）。
  */
 import { readPsd, type Layer } from 'ag-psd'
 import type { UINode } from '../types'
@@ -53,18 +55,26 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-function layerBounds(layer: Layer, canvas?: HTMLCanvasElement) {
+/**
+ * 读取 PSD 图层在文档中的像素矩形（与 PS 图层面板信息一致）。
+ * 有 canvas 时宽高以 canvas 为准（与导出 PNG 一致）；位置以 layer.left/top 为准。
+ */
+function layerPixelRect(layer: Layer, canvas?: HTMLCanvasElement | null) {
   const left = layer.left ?? 0
   const top = layer.top ?? 0
-  const right = layer.right ?? left + (canvas?.width ?? 0)
-  const bottom = layer.bottom ?? top + (canvas?.height ?? 0)
-  const width = Math.max(1, right - left)
-  const height = Math.max(1, bottom - top)
-  return { left, top, right, bottom, width, height }
+  const boxW = (layer.right ?? left) - left
+  const boxH = (layer.bottom ?? top) - top
+  const width = Math.max(1, canvas?.width || boxW || 1)
+  const height = Math.max(1, canvas?.height || boxH || 1)
+  return { left, top, width, height }
 }
 
-/** PSD 左上角坐标系 → 编辑器中心原点坐标系 */
-function toCenterCoords(
+/**
+ * PSD 文档左上角坐标系下的图层矩形 → 编辑器中心锚点变换。
+ * 保持与 PS 相同的像素宽高；中心点落到文档中心为原点的坐标系中。
+ * 不用 Math.round，避免奇数尺寸时偏移 0.5px。
+ */
+function psdRectToEditorTransform(
   left: number,
   top: number,
   width: number,
@@ -73,8 +83,10 @@ function toCenterCoords(
   docH: number,
 ) {
   return {
-    x: Math.round(left + width / 2 - docW / 2),
-    y: Math.round(top + height / 2 - docH / 2),
+    x: left + width / 2 - docW / 2,
+    y: top + height / 2 - docH / 2,
+    width,
+    height,
   }
 }
 
@@ -95,11 +107,31 @@ function applyOpacityComponent(node: UINode, layer: Layer) {
   node.components['OpacityComponent'] = { opacity }
 }
 
-/** 将子节点坐标从「文档中心绝对坐标」转为相对父节点 */
+/** 将子节点从「相对文档中心的绝对坐标」转为相对父节点 */
 function toParentLocal(kids: UINode[], parentX: number, parentY: number): void {
   for (const k of kids) {
     k.x -= parentX
     k.y -= parentY
+  }
+}
+
+/** 用子节点（此时仍为文档中心绝对坐标）推算组的包围盒与中心 */
+function unionFromChildren(kids: UINode[]) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const k of kids) {
+    minX = Math.min(minX, k.x - k.width / 2)
+    minY = Math.min(minY, k.y - k.height / 2)
+    maxX = Math.max(maxX, k.x + k.width / 2)
+    maxY = Math.max(maxY, k.y + k.height / 2)
+  }
+  return {
+    x: (minX + maxX) / 2,
+    y: (minY + maxY) / 2,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
   }
 }
 
@@ -111,6 +143,9 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   const baseName = sanitizeFsName(file.name.replace(/\.psd$/i, ''))
   const buffer = await file.arrayBuffer()
   const psd = readPsd(buffer)
+
+  const docW = Math.max(1, psd.width)
+  const docH = Math.max(1, psd.height)
 
   const images: ParsedPsdLayerImage[] = []
   const usedNames = new Set<string>()
@@ -130,9 +165,6 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   /**
    * 同级图层：按 ag-psd 已给出的引擎顺序依次创建（底层在前）。
    * 禁止 reverse；不写入 zIndex。
-   *
-   * 例：面板自上而下 Image effects → … → <BG>
-   *     → 节点 Root → <BG> → … → Image effects
    */
   const convertChildren = async (layers: readonly Layer[]): Promise<UINode[]> => {
     const kids: UINode[] = []
@@ -146,7 +178,7 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
   const convertLayer = async (layer: Layer): Promise<UINode | null> => {
     const name = layer.name?.trim() || 'Layer'
 
-    // 图层组
+    // 图层组：子节点先按文档绝对坐标生成，组尺寸/位置与子节点并集（或 PS 组框）一致
     if (layer.children && layer.children.length > 0) {
       const node = createNode(name)
       node.active = !layer.hidden
@@ -156,37 +188,33 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
       if (!kids.length) return null
       node.children = kids
 
-      const b = layerBounds(layer)
-      if (b.width <= 1 && b.height <= 1 && kids.length) {
-        let minX = Infinity
-        let minY = Infinity
-        let maxX = -Infinity
-        let maxY = -Infinity
-        for (const k of kids) {
-          minX = Math.min(minX, k.x - k.width / 2)
-          minY = Math.min(minY, k.y - k.height / 2)
-          maxX = Math.max(maxX, k.x + k.width / 2)
-          maxY = Math.max(maxY, k.y + k.height / 2)
-        }
-        node.width = Math.max(1, Math.round(maxX - minX))
-        node.height = Math.max(1, Math.round(maxY - minY))
-        node.x = Math.round((minX + maxX) / 2)
-        node.y = Math.round((minY + maxY) / 2)
+      const box = layerPixelRect(layer)
+      const hasValidGroupBox = (layer.right ?? 0) > (layer.left ?? 0) && (layer.bottom ?? 0) > (layer.top ?? 0)
+
+      if (hasValidGroupBox) {
+        // 与 PS 组图层矩形一致
+        const t = psdRectToEditorTransform(box.left, box.top, box.width, box.height, docW, docH)
+        node.x = t.x
+        node.y = t.y
+        node.width = t.width
+        node.height = t.height
       } else {
-        node.width = b.width
-        node.height = b.height
-        const c = toCenterCoords(b.left, b.top, b.width, b.height, psd.width, psd.height)
-        node.x = c.x
-        node.y = c.y
+        // 组在 PSD 中常无有效框，用子节点并集还原 PS 视觉范围
+        const u = unionFromChildren(kids)
+        node.x = u.x
+        node.y = u.y
+        node.width = u.width
+        node.height = u.height
       }
+
       toParentLocal(kids, node.x, node.y)
       return node
     }
 
-    // 像素图层
+    // 像素图层：尺寸/位置与 PS 图层像素框一致
     if (!layer.canvas) return null
 
-    const b = layerBounds(layer, layer.canvas)
+    const rect = layerPixelRect(layer, layer.canvas)
     const fileName = uniquePngName(name)
     const relativePath = `${baseName}/UI/${fileName}`
     const blob = await canvasToPngBlob(layer.canvas)
@@ -194,18 +222,18 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
       fileName,
       relativePath,
       blob,
-      width: b.width,
-      height: b.height,
+      width: rect.width,
+      height: rect.height,
     })
     layerCount += 1
 
     const node = createNode(name)
     node.active = !layer.hidden
-    node.width = b.width
-    node.height = b.height
-    const c = toCenterCoords(b.left, b.top, b.width, b.height, psd.width, psd.height)
-    node.x = c.x
-    node.y = c.y
+    const t = psdRectToEditorTransform(rect.left, rect.top, rect.width, rect.height, docW, docH)
+    node.x = t.x
+    node.y = t.y
+    node.width = t.width
+    node.height = t.height
 
     applyOpacityComponent(node, layer)
     node.components['SpriteComponent'] = {
@@ -217,14 +245,11 @@ export async function parsePsdFile(file: File): Promise<PsdImportResult> {
     return node
   }
 
-  const docW = Math.max(1, Math.round(psd.width))
-  const docH = Math.max(1, Math.round(psd.height))
   const root = createNode('Root')
   root.width = docW
   root.height = docH
   root.x = 0
   root.y = 0
-  // ag-psd 已是引擎顺序：<BG> → Manipulations → IAPSF → Visualization → Image effects
   root.children = await convertChildren(psd.children ?? [])
 
   return {
