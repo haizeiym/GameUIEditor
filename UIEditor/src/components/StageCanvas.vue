@@ -26,14 +26,19 @@ let selectionG: Graphics | null = null
 let handlesLayer: Container | null = null
 let handles: Graphics[] = []
 let destroyed = false
-let viewInitialized = false
+/** 用户是否已手动平移/缩放；为 true 时 resize 不再强制回中 */
+let userAdjustedView = false
+let resizeObserver: ResizeObserver | null = null
 
-/** 四角控制点顺序：左上、右上、左下、右下 */
 const HANDLE_CURSORS = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resize'] as const
 
-/** 节点 _id -> Pixi 容器 */
 const idMap = new Map<string, Container>()
 const textureCache = new Map<string, Promise<Texture | null>>()
+
+/** 复用点，避免每次命中分配 */
+const _local = new Point()
+const _stagePt = new Point()
+const _corner = new Point()
 
 // ---------- 纹理加载 ----------
 
@@ -66,7 +71,6 @@ function toTint(color: unknown): number {
   return 0xffffff
 }
 
-/** 中心锚点下的本地矩形：原点在节点中心 */
 function localRect(w: number, h: number) {
   return { x: -w / 2, y: -h / 2, w, h }
 }
@@ -80,10 +84,10 @@ function buildNode(node: UINode): Container {
   c.visible = node.active
   c.zIndex = node.zIndex
   c.sortableChildren = true
-  // 交互由舞台级精确命中测试负责，避免父子 hitArea 互相抢事件
+  // 禁用 Pixi 自带交互，统一走舞台级精确命中
   c.eventMode = 'none'
+  c.interactiveChildren = false
   const lr = localRect(node.width, node.height)
-  c.hitArea = new Rectangle(lr.x, lr.y, Math.max(lr.w, 1), Math.max(lr.h, 1))
   idMap.set(node._id, c)
 
   const opacityComp = node.components['OpacityComponent']
@@ -116,6 +120,8 @@ function buildNode(node: UINode): Container {
     c.addChild(g)
   }
 
+  // 子节点单独开启 interactiveChildren，便于容器层级正确
+  c.interactiveChildren = true
   for (const child of node.children) {
     c.addChild(buildNode(child))
   }
@@ -141,17 +147,19 @@ function updateDesignFrame() {
     .rect(-w / 2, -h / 2, w, h)
     .fill({ color: 0x1c1c1f, alpha: 0.55 })
     .stroke({ color: 0x52525b, width: 1 })
-  // 画布中心十字准星
-  frameG.moveTo(-12, 0).lineTo(12, 0).stroke({ color: 0x71717a, width: 1, alpha: 0.7 })
-  frameG.moveTo(0, -12).lineTo(0, 12).stroke({ color: 0x71717a, width: 1, alpha: 0.7 })
+  // 中心十字准星（设计坐标原点）
+  frameG.moveTo(-16, 0).lineTo(16, 0).stroke({ color: 0x94a3b8, width: 1, alpha: 0.85 })
+  frameG.moveTo(0, -16).lineTo(0, 16).stroke({ color: 0x94a3b8, width: 1, alpha: 0.85 })
+  frameG.circle(0, 0, 3).fill({ color: 0x94a3b8, alpha: 0.9 })
 }
 
-function centerWorldView() {
+/** 将设计原点 (0,0) 与十字准星置于中间画布视口正中央 */
+function centerWorldView(force = false) {
   if (!app || !world) return
+  if (userAdjustedView && !force) return
   world.scale.set(1)
-  // 视口中心对准设计坐标原点 (0,0)
   world.position.set(Math.round(app.screen.width / 2), Math.round(app.screen.height / 2))
-  viewInitialized = true
+  userAdjustedView = false
 }
 
 function rebuild() {
@@ -171,7 +179,6 @@ function rebuild() {
 function syncNodeVisual(c: Container, node: UINode) {
   c.position.set(node.x, node.y)
   const lr = localRect(node.width, node.height)
-  c.hitArea = new Rectangle(lr.x, lr.y, Math.max(lr.w, 1), Math.max(lr.h, 1))
   for (const child of c.children) {
     if (child instanceof Sprite && child.zIndex <= -100000) {
       child.anchor.set(0.5)
@@ -187,54 +194,121 @@ function syncNodeVisual(c: Container, node: UINode) {
   }
 }
 
-/**
- * 精确命中：自顶向下、子节点优先（按 zIndex 从高到低），
- * 解决点选子节点区域时误命中根节点的问题。
- */
-function pickDeepestNode(root: UINode, global: Point): UINode | null {
-  const walk = (node: UINode): UINode | null => {
-    if (!node.active) return null
-    const c = idMap.get(node._id)
-    if (!c || c.destroyed) return null
+// ---------- 精确命中测试 ----------
 
-    const kids = [...node.children].sort((a, b) => b.zIndex - a.zIndex)
-    for (const kid of kids) {
-      const hit = walk(kid)
-      if (hit) return hit
-    }
-
-    const local = c.toLocal(global)
-    const hw = node.width / 2
-    const hh = node.height / 2
-    if (local.x >= -hw && local.x <= hw && local.y >= -hh && local.y <= hh) {
-      return node
-    }
-    return null
+/** 将浏览器客户区坐标映射到 Pixi stage 坐标 */
+function clientToStage(clientX: number, clientY: number): Point {
+  if (!app || !wrapEl.value) {
+    _stagePt.set(0, 0)
+    return _stagePt
   }
-  return walk(root)
+  const rect = wrapEl.value.getBoundingClientRect()
+  const x = ((clientX - rect.left) / Math.max(rect.width, 1)) * app.screen.width
+  const y = ((clientY - rect.top) / Math.max(rect.height, 1)) * app.screen.height
+  _stagePt.set(x, y)
+  return _stagePt
 }
 
-// ---------- 选中高亮框 ----------
+/**
+ * 用 toLocal（内部会刷新全局变换）把 stage 点转到节点本地空间，
+ * 再与中心锚点矩形做包含判断。不依赖 Pixi 事件冒泡 / hitArea。
+ */
+function containsStagePoint(node: UINode, c: Container, stageX: number, stageY: number): boolean {
+  if (!node.active || !c.visible || c.destroyed) return false
+  _stagePt.set(stageX, stageY)
+  // skipUpdate=false：沿父链重算变换，避免 rebuild 后矩阵过期
+  c.toLocal(_stagePt, undefined, _local, false)
+
+  const hw = Math.max(node.width, 1) / 2
+  const hh = Math.max(node.height, 1) / 2
+  return _local.x >= -hw && _local.x <= hw && _local.y >= -hh && _local.y <= hh
+}
+
+interface HitCandidate {
+  node: UINode
+  depth: number
+  area: number
+  zIndex: number
+}
+
+/**
+ * 收集所有包含点击点的节点，再按：
+ * 1) 深度更深优先（子节点压过父节点 / Root）
+ * 2) 同深度时面积更小优先（更精确的小节点）
+ * 3) 再比 zIndex
+ * 彻底修复 Root→Node1→Node2 点击 Node2 却选中 Root 的问题。
+ */
+function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | null {
+  const hits: HitCandidate[] = []
+  const walk = (node: UINode, depth: number) => {
+    const c = idMap.get(node._id)
+    if (!c || c.destroyed) return
+
+    // 先递归全部子孙，再测自己 —— 保证深度信息完整
+    for (const child of node.children) {
+      walk(child, depth + 1)
+    }
+
+    if (containsStagePoint(node, c, stageX, stageY)) {
+      hits.push({
+        node,
+        depth,
+        area: Math.max(node.width, 1) * Math.max(node.height, 1),
+        zIndex: node.zIndex,
+      })
+    }
+  }
+  walk(root, 0)
+
+  if (!hits.length) return null
+
+  // 深度更深 > 面积更小 > zIndex 更大
+  hits.sort((a, b) => {
+    if (b.depth !== a.depth) return b.depth - a.depth
+    if (a.area !== b.area) return a.area - b.area
+    return b.zIndex - a.zIndex
+  })
+  return hits[0].node
+}
+
+// ---------- 选中高亮框（仅自身尺寸，不含子节点包围盒） ----------
 
 function updateSelectionOutline() {
-  if (!selectionG || !handlesLayer) return
+  if (!selectionG || !handlesLayer || !world) return
   selectionG.clear()
   const id = editor.selectedId
+  const node = findNodeById(editor.currentUIData as UINode | null, id)
   const c = id ? idMap.get(id) : null
-  if (!c || c.destroyed) {
+  if (!node || !c || c.destroyed) {
     handlesLayer.visible = false
     return
   }
-  const b = c.getBounds()
-  selectionG.rect(b.x, b.y, b.width, b.height).stroke({ color: 0x38bdf8, width: 1.5 })
-  handlesLayer.visible = true
-  const corners = [
-    [b.x, b.y],
-    [b.x + b.width, b.y],
-    [b.x, b.y + b.height],
-    [b.x + b.width, b.y + b.height],
+
+  // 用中心锚点四角的全局坐标画框，避免 getBounds() 把子孙包进来导致误点
+  const hw = node.width / 2
+  const hh = node.height / 2
+  const cornersLocal = [
+    { x: -hw, y: -hh },
+    { x: hw, y: -hh },
+    { x: -hw, y: hh },
+    { x: hw, y: hh },
   ]
-  handles.forEach((h, i) => h.position.set(corners[i][0], corners[i][1]))
+  const corners = cornersLocal.map((p) => {
+    _corner.set(p.x, p.y)
+    return c.toGlobal(_corner, new Point(), false)
+  })
+  selectionG
+    .moveTo(corners[0].x, corners[0].y)
+    .lineTo(corners[1].x, corners[1].y)
+    .lineTo(corners[3].x, corners[3].y)
+    .lineTo(corners[2].x, corners[2].y)
+    .lineTo(corners[0].x, corners[0].y)
+    .stroke({ color: 0x38bdf8, width: 1.5 })
+
+  handlesLayer.visible = true
+  // 手柄顺序：左上、右上、左下、右下
+  const handlePos = [corners[0], corners[1], corners[2], corners[3]]
+  handles.forEach((h, i) => h.position.set(handlePos[i].x, handlePos[i].y))
 }
 
 // ---------- 交互 ----------
@@ -281,14 +355,14 @@ function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
   }
 }
 
-/** 中心锚点：对角固定，更新中心坐标与宽高 */
 function applyResize(e: FederatedPointerEvent) {
   if (!resizing || !world) return
   const c = idMap.get(resizing.id)
   const node = findNodeById(editor.currentUIData as UINode | null, resizing.id)
   if (!c || !c.parent || !node) return
 
-  const local = c.parent.toLocal(e.global)
+  const stage = clientToStage(e.clientX, e.clientY)
+  const local = c.parent.toLocal(stage)
   const { corner, startX, startY, startW, startH } = resizing
   const halfW = startW / 2
   const halfH = startH / 2
@@ -329,23 +403,24 @@ function applyResize(e: FederatedPointerEvent) {
   resizing.moved = true
 }
 
-function beginDrag(id: string, e: FederatedPointerEvent) {
+function beginDrag(id: string, stageX: number, stageY: number) {
   const c = idMap.get(id)
   const node = findNodeById(editor.currentUIData as UINode | null, id)
   if (!c || !c.parent || !node) return
-  const local = c.parent.toLocal(e.global)
+  const local = c.parent.toLocal(new Point(stageX, stageY))
   dragging = { id, startX: node.x, startY: node.y, localX: local.x, localY: local.y, moved: false }
 }
 
 function onStagePointerDown(e: FederatedPointerEvent) {
   if (!app || !world) return
   if (e.button === 1) {
+    userAdjustedView = true
     panning = { pointerX: e.global.x, pointerY: e.global.y, worldX: world.x, worldY: world.y }
     return
   }
   if (e.button !== 0) return
 
-  // 四角手柄自己处理
+  // 四角手柄自己处理（勿抢选）
   if (handles.includes(e.target as Graphics)) return
 
   const root = editor.currentUIData as UINode | null
@@ -354,10 +429,12 @@ function onStagePointerDown(e: FederatedPointerEvent) {
     return
   }
 
-  const hit = pickDeepestNode(root, e.global)
+  // 用 DOM 客户区坐标换算，避免 autoDensity / 事件目标导致的 global 偏差
+  const stage = clientToStage(e.clientX, e.clientY)
+  const hit = pickBestNode(root, stage.x, stage.y)
   if (hit) {
     editor.selectedId = hit._id
-    beginDrag(hit._id, e)
+    beginDrag(hit._id, stage.x, stage.y)
   } else {
     editor.selectedId = null
     dragging = null
@@ -380,7 +457,8 @@ function onStagePointerMove(e: FederatedPointerEvent) {
   const c = idMap.get(dragging.id)
   const node = findNodeById(editor.currentUIData as UINode | null, dragging.id)
   if (!c || !c.parent || !node) return
-  const local = c.parent.toLocal(e.global)
+  const stage = clientToStage(e.clientX, e.clientY)
+  const local = c.parent.toLocal(stage)
   const nx = Math.round(dragging.startX + local.x - dragging.localX)
   const ny = Math.round(dragging.startY + local.y - dragging.localY)
   if (nx === node.x && ny === node.y) return
@@ -413,6 +491,7 @@ function onStagePointerUp() {
 function onWheel(e: WheelEvent) {
   if (!world || !wrapEl.value) return
   e.preventDefault()
+  userAdjustedView = true
   const rect = wrapEl.value.getBoundingClientRect()
   const px = e.clientX - rect.left
   const py = e.clientY - rect.top
@@ -477,12 +556,23 @@ onMounted(async () => {
   app.ticker.add(updateSelectionOutline)
 
   wrapEl.value.addEventListener('wheel', onWheel, { passive: false })
-  centerWorldView()
+
+  // 视口尺寸变化时，把设计画布与十字准星重新置于正中央
+  resizeObserver = new ResizeObserver(() => {
+    if (!app) return
+    // resizeTo 已处理画布缓冲；下一帧用新的 screen 尺寸回中
+    requestAnimationFrame(() => centerWorldView(false))
+  })
+  resizeObserver.observe(wrapEl.value)
+
+  centerWorldView(true)
   queueRebuild()
 })
 
 onBeforeUnmount(() => {
   destroyed = true
+  resizeObserver?.disconnect()
+  resizeObserver = null
   wrapEl.value?.removeEventListener('wheel', onWheel)
   app?.destroy(true, { children: true, texture: true })
   app = null
@@ -500,6 +590,7 @@ watch(
   () => {
     updateDesignFrame()
     queueRebuild()
+    centerWorldView(false)
   },
 )
 
@@ -508,7 +599,8 @@ watch(
   (path) => {
     if (path && path !== lastFilePath) {
       lastFilePath = path
-      centerWorldView()
+      userAdjustedView = false
+      centerWorldView(true)
       queueRebuild()
     }
   },
@@ -528,7 +620,7 @@ watch(
     <div
       class="pointer-events-none absolute top-2 left-3 z-10 text-[11px] text-zinc-600 select-none"
     >
-      原点(0,0)=画布中心 · 左键选中/拖拽 · 拖四角缩放 · 中键平移 · 滚轮缩放
+      原点(0,0)=视口正中央 · 左键选中/拖拽 · 拖四角缩放 · 中键平移 · 滚轮缩放
     </div>
     <div
       class="pointer-events-none absolute top-2 right-3 z-10 text-[11px] text-zinc-500 select-none"
