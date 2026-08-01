@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import type { AssetEntry } from '../types'
 import { useProjectStore } from '../stores/project'
+import type { AssetEntry } from '../types'
 
 const project = useProjectStore()
 
@@ -79,7 +79,7 @@ function onDragStart(e: DragEvent, asset: AssetEntry) {
           @dragstart="onDragStart($event, asset)"
         >
           <div
-            class="flex h-14 w-full items-center justify-center overflow-hidden rounded bg-[repeating-conic-gradient(#27272a_0%_25%,#1c1c1f_0%_50%)] bg-[length:12px_12px]"
+            class="flex h-14 w-full items-center justify-center overflow-hidden rounded bg-[repeating-conic-gradient(#27272a_0%_25%,#1c1c1f_0%_50%)] bg-size-[12px_12px]"
           >
             <img :src="asset.url" class="max-h-full max-w-full object-contain" draggable="false" />
           </div>

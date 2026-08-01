@@ -192,7 +192,10 @@ export function parseComponentDefs(text: string): ComponentDefs {
   return parsed as ComponentDefs
 }
 
-export const DEFAULT_COMPONENTS_JSON = `{
+/**
+ * 内置兜底组件库：当 `config/components.json` 不存在时使用。
+ */
+const FALLBACK_COMPONENTS_JSON = `{
   "UIComponent": {
     "properties": {
       "size": { "type": "v2", "default": "(100,50)" },
@@ -218,3 +221,20 @@ export const DEFAULT_COMPONENTS_JSON = `{
   }
 }
 `
+
+/** 优先读取仓库内 config/components.json；文件不存在时回退到 FALLBACK */
+const bundledConfigModules = import.meta.glob('../../config/components.json', {
+  eager: true,
+  import: 'default',
+}) as Record<string, unknown>
+
+function resolveDefaultComponentsJson(): string {
+  const bundled = Object.values(bundledConfigModules)[0]
+  if (bundled && typeof bundled === 'object' && !Array.isArray(bundled)) {
+    return `${JSON.stringify(bundled, null, 2)}\n`
+  }
+  return FALLBACK_COMPONENTS_JSON
+}
+
+/** 新建项目 / 项目缺少 components.json 时使用的默认组件库文本 */
+export const DEFAULT_COMPONENTS_JSON = resolveDefaultComponentsJson()

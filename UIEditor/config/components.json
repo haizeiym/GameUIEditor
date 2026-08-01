@@ -1,11 +1,4 @@
 {
-  "UIComponent": {
-    "properties": {
-      "size": { "type": "v2", "default": "(100,50)" },
-      "anchor": { "type": "v2", "default": "(0.5,0.5)" }
-    },
-    "componentType": 0
-  },
   "OpacityComponent": {
     "properties": {
       "opacity": { "type": "number", "default": 255 }

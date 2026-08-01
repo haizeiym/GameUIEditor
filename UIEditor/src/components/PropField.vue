@@ -68,7 +68,7 @@ function onDrop(e: DragEvent) {
     v-else-if="def.type === 'number'"
     v-model="numValue"
     size="small"
-    class="!w-full"
+    class="w-full!"
     :min="def.min"
     :max="def.max"
     :step="def.step ?? 1"
@@ -92,7 +92,7 @@ function onDrop(e: DragEvent) {
     <el-input-number
       :model-value="vecValue.x"
       size="small"
-      class="!w-1/2"
+      class="w-1/2!"
       controls-position="right"
       @update:model-value="setVec('x', $event ?? undefined)"
       @change="emit('commit')"
@@ -100,7 +100,7 @@ function onDrop(e: DragEvent) {
     <el-input-number
       :model-value="vecValue.y"
       size="small"
-      class="!w-1/2"
+      class="w-1/2!"
       controls-position="right"
       @update:model-value="setVec('y', $event ?? undefined)"
       @change="emit('commit')"

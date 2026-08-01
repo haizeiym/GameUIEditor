@@ -227,11 +227,11 @@ async function onImportPsd() {
       <div class="flex flex-col gap-3">
         <div class="flex items-center gap-2">
           <span class="w-12 text-zinc-400">宽</span>
-          <el-input-number v-model="draftWidth" :min="1" :max="8192" controls-position="right" class="!w-full" />
+          <el-input-number v-model="draftWidth" :min="1" :max="8192" controls-position="right" class="w-full!" />
         </div>
         <div class="flex items-center gap-2">
           <span class="w-12 text-zinc-400">高</span>
-          <el-input-number v-model="draftHeight" :min="1" :max="8192" controls-position="right" class="!w-full" />
+          <el-input-number v-model="draftHeight" :min="1" :max="8192" controls-position="right" class="w-full!" />
         </div>
         <p class="text-xs text-zinc-500">默认 1366×768（横屏）。修改后同步到根节点宽高，画布中心仍为坐标原点 (0,0)。</p>
       </div>

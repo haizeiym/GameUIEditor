@@ -39,8 +39,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <div class="flex min-h-0 flex-1">
       <!-- 左侧：节点树 + 项目文件 -->
       <aside class="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-900">
-        <NodeTree class="min-h-0 flex-[3] border-b border-zinc-800" />
-        <FileTree class="min-h-0 flex-[2]" />
+        <NodeTree class="min-h-0 flex-3 border-b border-zinc-800" />
+        <FileTree class="min-h-0 flex-2" />
       </aside>
 
       <!-- 中间：画布 + 底部资源管理器 -->

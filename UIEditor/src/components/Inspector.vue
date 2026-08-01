@@ -77,14 +77,14 @@ async function onDeleteNode() {
           <el-input-number
             v-model="node.x"
             size="small"
-            class="!w-1/2"
+            class="w-1/2!"
             controls-position="right"
             @change="editor.commit()"
           />
           <el-input-number
             v-model="node.y"
             size="small"
-            class="!w-1/2"
+            class="w-1/2!"
             controls-position="right"
             @change="editor.commit()"
           />
@@ -94,7 +94,7 @@ async function onDeleteNode() {
           <el-input-number
             v-model="node.width"
             size="small"
-            class="!w-1/2"
+            class="w-1/2!"
             :min="0"
             controls-position="right"
             @change="editor.commit()"
@@ -102,7 +102,7 @@ async function onDeleteNode() {
           <el-input-number
             v-model="node.height"
             size="small"
-            class="!w-1/2"
+            class="w-1/2!"
             :min="0"
             controls-position="right"
             @change="editor.commit()"
@@ -113,7 +113,7 @@ async function onDeleteNode() {
           <el-input-number
             v-model="node.zIndex"
             size="small"
-            class="!w-full"
+            class="w-full!"
             controls-position="right"
             @change="editor.commit()"
           />
@@ -123,7 +123,7 @@ async function onDeleteNode() {
           type="danger"
           size="small"
           plain
-          class="!mt-3 w-full"
+          class="mt-3 w-full!"
           @click="onDeleteNode"
         >
           删除节点
