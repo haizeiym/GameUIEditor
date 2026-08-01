@@ -4,6 +4,7 @@ import {
   Application,
   Container,
   Graphics,
+  Point,
   Rectangle,
   Sprite,
   Texture,
@@ -20,11 +21,12 @@ const wrapEl = ref<HTMLDivElement>()
 
 let app: Application | null = null
 let world: Container | null = null
+let frameG: Graphics | null = null
 let selectionG: Graphics | null = null
 let handlesLayer: Container | null = null
 let handles: Graphics[] = []
 let destroyed = false
-let lastCenteredFile: string | null = null
+let viewInitialized = false
 
 /** 四角控制点顺序：左上、右上、左下、右下 */
 const HANDLE_CURSORS = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resize'] as const
@@ -33,7 +35,7 @@ const HANDLE_CURSORS = ['nwse-resize', 'nesw-resize', 'nesw-resize', 'nwse-resiz
 const idMap = new Map<string, Container>()
 const textureCache = new Map<string, Promise<Texture | null>>()
 
-// ---------- 纹理加载（项目相对路径 -> 本地文件 -> Texture） ----------
+// ---------- 纹理加载 ----------
 
 function loadTexture(path: string): Promise<Texture | null> {
   let cached = textureCache.get(path)
@@ -53,7 +55,6 @@ function loadTexture(path: string): Promise<Texture | null> {
   return cached
 }
 
-/** SpriteComponent.color 支持 "#RRGGBB" 或 [r,g,b,a] 两种写法 */
 function toTint(color: unknown): number {
   if (typeof color === 'string' && /^#[0-9a-fA-F]{6}/.test(color)) {
     return parseInt(color.slice(1, 7), 16)
@@ -65,7 +66,12 @@ function toTint(color: unknown): number {
   return 0xffffff
 }
 
-// ---------- 场景构建 ----------
+/** 中心锚点下的本地矩形：原点在节点中心 */
+function localRect(w: number, h: number) {
+  return { x: -w / 2, y: -h / 2, w, h }
+}
+
+// ---------- 场景构建（中心锚点；画布中心 = 全局 (0,0)） ----------
 
 function buildNode(node: UINode): Container {
   const c = new Container()
@@ -74,9 +80,10 @@ function buildNode(node: UINode): Container {
   c.visible = node.active
   c.zIndex = node.zIndex
   c.sortableChildren = true
-  c.eventMode = 'static'
-  c.hitArea = new Rectangle(0, 0, Math.max(node.width, 1), Math.max(node.height, 1))
-  c.on('pointerdown', (e: FederatedPointerEvent) => onNodePointerDown(e, node._id))
+  // 交互由舞台级精确命中测试负责，避免父子 hitArea 互相抢事件
+  c.eventMode = 'none'
+  const lr = localRect(node.width, node.height)
+  c.hitArea = new Rectangle(lr.x, lr.y, Math.max(lr.w, 1), Math.max(lr.h, 1))
   idMap.set(node._id, c)
 
   const opacityComp = node.components['OpacityComponent']
@@ -89,7 +96,9 @@ function buildNode(node: UINode): Container {
   if (spriteComp && framePath) {
     const sp = new Sprite(Texture.EMPTY)
     sp.zIndex = -100000
+    sp.eventMode = 'none'
     sp.tint = toTint(spriteComp.color)
+    sp.anchor.set(0.5)
     void loadTexture(framePath).then((texture) => {
       if (!texture || sp.destroyed) return
       sp.texture = texture
@@ -98,12 +107,12 @@ function buildNode(node: UINode): Container {
     })
     c.addChild(sp)
   } else {
-    // 无贴图节点画半透明占位框，保证可见、可点选
     const g = new Graphics()
-      .rect(0, 0, node.width, node.height)
+      .rect(lr.x, lr.y, node.width, node.height)
       .fill({ color: 0x4a90d9, alpha: 0.07 })
       .stroke({ color: 0x8899aa, width: 1, alpha: 0.35 })
     g.zIndex = -100000
+    g.eventMode = 'none'
     c.addChild(g)
   }
 
@@ -123,48 +132,89 @@ function queueRebuild() {
   })
 }
 
+function updateDesignFrame() {
+  if (!frameG) return
+  const w = editor.canvasWidth
+  const h = editor.canvasHeight
+  frameG.clear()
+  frameG
+    .rect(-w / 2, -h / 2, w, h)
+    .fill({ color: 0x1c1c1f, alpha: 0.55 })
+    .stroke({ color: 0x52525b, width: 1 })
+  // 画布中心十字准星
+  frameG.moveTo(-12, 0).lineTo(12, 0).stroke({ color: 0x71717a, width: 1, alpha: 0.7 })
+  frameG.moveTo(0, -12).lineTo(0, 12).stroke({ color: 0x71717a, width: 1, alpha: 0.7 })
+}
+
+function centerWorldView() {
+  if (!app || !world) return
+  world.scale.set(1)
+  // 视口中心对准设计坐标原点 (0,0)
+  world.position.set(Math.round(app.screen.width / 2), Math.round(app.screen.height / 2))
+  viewInitialized = true
+}
+
 function rebuild() {
-  // 拖拽/四角缩放期间跳过重建，由交互逻辑直接改容器视觉属性
   if (!app || !world || dragging || resizing) return
-  for (const child of world.removeChildren()) child.destroy({ children: true })
+  for (const child of world.children.slice()) {
+    if (child === frameG) continue
+    world.removeChild(child)
+    child.destroy({ children: true })
+  }
   idMap.clear()
+  updateDesignFrame()
   const data = editor.currentUIData
   if (!data) return
   world.addChild(buildNode(data as UINode))
-
-  if (editor.currentFilePath !== lastCenteredFile) {
-    lastCenteredFile = editor.currentFilePath
-    world.scale.set(1)
-    world.position.set(
-      Math.round((app.screen.width - data.width) / 2),
-      Math.round((app.screen.height - data.height) / 2),
-    )
-  }
 }
 
-/** 就地同步节点容器的位置与尺寸视觉（拖拽/缩放过程中避免整树重建） */
 function syncNodeVisual(c: Container, node: UINode) {
   c.position.set(node.x, node.y)
-  c.hitArea = new Rectangle(0, 0, Math.max(node.width, 1), Math.max(node.height, 1))
+  const lr = localRect(node.width, node.height)
+  c.hitArea = new Rectangle(lr.x, lr.y, Math.max(lr.w, 1), Math.max(lr.h, 1))
   for (const child of c.children) {
-    if (child instanceof Sprite || child instanceof Graphics) {
-      // 占位框 / Sprite 贴图都是 zIndex 极低的尺寸层
-      if (child.zIndex <= -100000) {
-        if (child instanceof Sprite) {
-          child.width = node.width
-          child.height = node.height
-        } else {
-          child.clear()
-            .rect(0, 0, node.width, node.height)
-            .fill({ color: 0x4a90d9, alpha: 0.07 })
-            .stroke({ color: 0x8899aa, width: 1, alpha: 0.35 })
-        }
-      }
+    if (child instanceof Sprite && child.zIndex <= -100000) {
+      child.anchor.set(0.5)
+      child.width = node.width
+      child.height = node.height
+    } else if (child instanceof Graphics && child.zIndex <= -100000) {
+      child
+        .clear()
+        .rect(lr.x, lr.y, node.width, node.height)
+        .fill({ color: 0x4a90d9, alpha: 0.07 })
+        .stroke({ color: 0x8899aa, width: 1, alpha: 0.35 })
     }
   }
 }
 
-// ---------- 选中高亮框（每帧跟随） ----------
+/**
+ * 精确命中：自顶向下、子节点优先（按 zIndex 从高到低），
+ * 解决点选子节点区域时误命中根节点的问题。
+ */
+function pickDeepestNode(root: UINode, global: Point): UINode | null {
+  const walk = (node: UINode): UINode | null => {
+    if (!node.active) return null
+    const c = idMap.get(node._id)
+    if (!c || c.destroyed) return null
+
+    const kids = [...node.children].sort((a, b) => b.zIndex - a.zIndex)
+    for (const kid of kids) {
+      const hit = walk(kid)
+      if (hit) return hit
+    }
+
+    const local = c.toLocal(global)
+    const hw = node.width / 2
+    const hh = node.height / 2
+    if (local.x >= -hw && local.x <= hw && local.y >= -hh && local.y <= hh) {
+      return node
+    }
+    return null
+  }
+  return walk(root)
+}
+
+// ---------- 选中高亮框 ----------
 
 function updateSelectionOutline() {
   if (!selectionG || !handlesLayer) return
@@ -187,7 +237,7 @@ function updateSelectionOutline() {
   handles.forEach((h, i) => h.position.set(corners[i][0], corners[i][1]))
 }
 
-// ---------- 交互：点选 / 拖拽元素 / 四角缩放 / 平移视图 ----------
+// ---------- 交互 ----------
 
 let dragging: {
   id: string
@@ -200,7 +250,6 @@ let dragging: {
 
 let panning: { pointerX: number; pointerY: number; worldX: number; worldY: number } | null = null
 
-/** 四角缩放中的状态；corner: 0左上 1右上 2左下 3右下 */
 let resizing: {
   id: string
   corner: number
@@ -208,10 +257,10 @@ let resizing: {
   startY: number
   startW: number
   startH: number
-  localX: number
-  localY: number
   moved: boolean
 } | null = null
+
+let lastFilePath = ''
 
 function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
   if (e.button !== 0) return
@@ -220,9 +269,7 @@ function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
   const node = findNodeById(editor.currentUIData as UINode | null, id)
   if (!id || !c || !c.parent || !node) return
   e.stopPropagation()
-  // 避免与节点拖拽冲突
   dragging = null
-  const local = c.parent.toLocal(e.global)
   resizing = {
     id,
     corner,
@@ -230,45 +277,59 @@ function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
     startY: node.y,
     startW: node.width,
     startH: node.height,
-    localX: local.x,
-    localY: local.y,
     moved: false,
   }
 }
 
+/** 中心锚点：对角固定，更新中心坐标与宽高 */
 function applyResize(e: FederatedPointerEvent) {
-  if (!resizing) return
+  if (!resizing || !world) return
   const c = idMap.get(resizing.id)
   const node = findNodeById(editor.currentUIData as UINode | null, resizing.id)
   if (!c || !c.parent || !node) return
-  const local = c.parent.toLocal(e.global)
-  const dx = local.x - resizing.localX
-  const dy = local.y - resizing.localY
-  const { corner, startX, startY, startW, startH } = resizing
 
-  const left = corner === 0 || corner === 2 // 拖动的是左边缘
-  const top = corner === 0 || corner === 1 // 拖动的是上边缘
-  const w = Math.max(1, Math.round(left ? startW - dx : startW + dx))
-  const h = Math.max(1, Math.round(top ? startH - dy : startH + dy))
-  const nx = left ? startX + (startW - w) : startX
-  const ny = top ? startY + (startH - h) : startY
+  const local = c.parent.toLocal(e.global)
+  const { corner, startX, startY, startW, startH } = resizing
+  const halfW = startW / 2
+  const halfH = startH / 2
+  let left = startX - halfW
+  let right = startX + halfW
+  let top = startY - halfH
+  let bottom = startY + halfH
+
+  if (corner === 0) {
+    left = local.x
+    top = local.y
+  } else if (corner === 1) {
+    right = local.x
+    top = local.y
+  } else if (corner === 2) {
+    left = local.x
+    bottom = local.y
+  } else {
+    right = local.x
+    bottom = local.y
+  }
+
+  const minX = Math.min(left, right)
+  const maxX = Math.max(left, right)
+  const minY = Math.min(top, bottom)
+  const maxY = Math.max(top, bottom)
+  const w = Math.max(1, Math.round(maxX - minX))
+  const h = Math.max(1, Math.round(maxY - minY))
+  const nx = Math.round(minX + w / 2)
+  const ny = Math.round(minY + h / 2)
 
   if (w === node.width && h === node.height && nx === node.x && ny === node.y) return
-
-  // 实时更新数据源：属性栏同步、防抖写盘由 store watcher 处理
   node.width = w
   node.height = h
-  // 对角固定：拖左/上边缘时同步平移节点原点
   node.x = nx
   node.y = ny
   syncNodeVisual(c, node)
   resizing.moved = true
 }
 
-function onNodePointerDown(e: FederatedPointerEvent, id: string) {
-  if (e.button !== 0) return
-  e.stopPropagation()
-  editor.selectedId = id
+function beginDrag(id: string, e: FederatedPointerEvent) {
   const c = idMap.get(id)
   const node = findNodeById(editor.currentUIData as UINode | null, id)
   if (!c || !c.parent || !node) return
@@ -282,8 +343,24 @@ function onStagePointerDown(e: FederatedPointerEvent) {
     panning = { pointerX: e.global.x, pointerY: e.global.y, worldX: world.x, worldY: world.y }
     return
   }
-  if (e.target === app.stage) {
+  if (e.button !== 0) return
+
+  // 四角手柄自己处理
+  if (handles.includes(e.target as Graphics)) return
+
+  const root = editor.currentUIData as UINode | null
+  if (!root) {
     editor.selectedId = null
+    return
+  }
+
+  const hit = pickDeepestNode(root, e.global)
+  if (hit) {
+    editor.selectedId = hit._id
+    beginDrag(hit._id, e)
+  } else {
+    editor.selectedId = null
+    dragging = null
   }
 }
 
@@ -307,7 +384,6 @@ function onStagePointerMove(e: FederatedPointerEvent) {
   const nx = Math.round(dragging.startX + local.x - dragging.localX)
   const ny = Math.round(dragging.startY + local.y - dragging.localY)
   if (nx === node.x && ny === node.y) return
-  // 实时更新数据源：属性栏同步、防抖写盘由 store watcher 处理
   node.x = nx
   node.y = ny
   c.position.set(nx, ny)
@@ -368,7 +444,13 @@ onMounted(async () => {
 
   world = new Container()
   world.sortableChildren = true
+  frameG = new Graphics()
+  frameG.eventMode = 'none'
+  frameG.zIndex = -1000000
+  world.addChild(frameG)
+
   selectionG = new Graphics()
+  selectionG.eventMode = 'none'
   handlesLayer = new Container()
   handlesLayer.visible = false
   handlesLayer.eventMode = 'static'
@@ -378,7 +460,6 @@ onMounted(async () => {
       .fill(0x38bdf8)
       .stroke({ color: 0x0c4a6e, width: 1 })
     handle.eventMode = 'static'
-    // 扩大点击热区，方便抓取四角
     handle.hitArea = new Rectangle(-8, -8, 16, 16)
     handle.cursor = HANDLE_CURSORS[i]
     handle.on('pointerdown', (e: FederatedPointerEvent) => onHandlePointerDown(e, i))
@@ -396,6 +477,7 @@ onMounted(async () => {
   app.ticker.add(updateSelectionOutline)
 
   wrapEl.value.addEventListener('wheel', onWheel, { passive: false })
+  centerWorldView()
   queueRebuild()
 })
 
@@ -405,15 +487,33 @@ onBeforeUnmount(() => {
   app?.destroy(true, { children: true, texture: true })
   app = null
   world = null
+  frameG = null
   selectionG = null
   handlesLayer = null
   handles = []
 })
 
-// 数据源任何变化 → 重建场景（画布拖拽期间跳过，由拖拽逻辑直接改容器坐标）
 watch(() => editor.currentUIData, queueRebuild, { deep: true })
 
-// 图片资产增删 → 失效纹理缓存并重建
+watch(
+  () => [editor.canvasWidth, editor.canvasHeight] as const,
+  () => {
+    updateDesignFrame()
+    queueRebuild()
+  },
+)
+
+watch(
+  () => editor.currentFilePath,
+  (path) => {
+    if (path && path !== lastFilePath) {
+      lastFilePath = path
+      centerWorldView()
+      queueRebuild()
+    }
+  },
+)
+
 watch(
   () => project.assetVersion,
   () => {
@@ -428,7 +528,12 @@ watch(
     <div
       class="pointer-events-none absolute top-2 left-3 z-10 text-[11px] text-zinc-600 select-none"
     >
-      左键：选中/拖拽元素 · 拖四角：缩放大小 · 中键：平移 · 滚轮：缩放视图
+      原点(0,0)=画布中心 · 左键选中/拖拽 · 拖四角缩放 · 中键平移 · 滚轮缩放
+    </div>
+    <div
+      class="pointer-events-none absolute top-2 right-3 z-10 text-[11px] text-zinc-500 select-none"
+    >
+      {{ editor.resolutionLabel }} · {{ editor.orientation === 'landscape' ? '横屏' : '竖屏' }}
     </div>
   </div>
 </template>

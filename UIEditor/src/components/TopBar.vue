@@ -9,6 +9,9 @@ import ComponentLibDialog from './ComponentLibDialog.vue'
 const project = useProjectStore()
 const editor = useEditorStore()
 const libDialogVisible = ref(false)
+const resolutionDialogVisible = ref(false)
+const draftWidth = ref(1366)
+const draftHeight = ref(768)
 
 const saveLabel = computed(() => {
   switch (editor.saveState) {
@@ -69,7 +72,10 @@ async function onNewUIFile() {
       cancelButtonText: '取消',
     })
     const path = `${value}.json`
-    const handle = await project.createProjectFile(path, serializeForDisk(createDefaultUIData()))
+    const handle = await project.createProjectFile(
+      path,
+      serializeForDisk(createDefaultUIData(editor.canvasWidth, editor.canvasHeight)),
+    )
     await editor.loadUIFile(handle, path)
     ElMessage.success(`已创建 ${path}`)
   } catch (err) {
@@ -98,6 +104,25 @@ async function onExportUIFile() {
     if (!isAbort(err)) ElMessage.error(`导出失败：${String(err)}`)
   }
 }
+
+function onToggleOrientation() {
+  editor.toggleOrientation()
+  ElMessage.success(
+    `已切换为${editor.orientation === 'landscape' ? '横屏' : '竖屏'} ${editor.resolutionLabel}`,
+  )
+}
+
+function openResolutionDialog() {
+  draftWidth.value = editor.canvasWidth
+  draftHeight.value = editor.canvasHeight
+  resolutionDialogVisible.value = true
+}
+
+function onConfirmResolution() {
+  editor.setResolution(draftWidth.value, draftHeight.value)
+  resolutionDialogVisible.value = false
+  ElMessage.success(`分辨率已设为 ${editor.resolutionLabel}`)
+}
 </script>
 
 <template>
@@ -115,6 +140,16 @@ async function onExportUIFile() {
       <el-button :disabled="!project.dirHandle" @click="onNewUIFile">新建UI界面</el-button>
       <el-button @click="onImportUIFile">导入UI界面</el-button>
       <el-button :disabled="!editor.currentUIData" @click="onExportUIFile">导出UI界面</el-button>
+      <el-button
+        :disabled="!editor.currentUIData"
+        :title="`当前：${editor.orientation === 'landscape' ? '横屏' : '竖屏'}`"
+        @click="onToggleOrientation"
+      >
+        切换横竖屏
+      </el-button>
+      <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
+        设置分辨率
+      </el-button>
     </el-button-group>
 
     <el-button size="small" @click="libDialogVisible = true">编辑组件库</el-button>
@@ -140,5 +175,23 @@ async function onExportUIFile() {
     </div>
 
     <ComponentLibDialog v-model="libDialogVisible" />
+
+    <el-dialog v-model="resolutionDialogVisible" title="设置分辨率" width="360px">
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-zinc-400">宽</span>
+          <el-input-number v-model="draftWidth" :min="1" :max="8192" controls-position="right" class="!w-full" />
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-zinc-400">高</span>
+          <el-input-number v-model="draftHeight" :min="1" :max="8192" controls-position="right" class="!w-full" />
+        </div>
+        <p class="text-xs text-zinc-500">默认 1366×768（横屏）。修改后同步到根节点宽高，画布中心仍为坐标原点 (0,0)。</p>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="resolutionDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" @click="onConfirmResolution">确定</el-button>
+      </template>
+    </el-dialog>
   </header>
 </template>

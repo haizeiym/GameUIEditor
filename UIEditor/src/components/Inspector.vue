@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
+import { canAddComponent } from '../utils/node'
 import PropField from './PropField.vue'
 
 const editor = useEditorStore()
@@ -10,9 +11,13 @@ const project = useProjectStore()
 
 const node = computed(() => editor.selectedNode)
 const mountedComponents = computed(() => Object.keys(node.value?.components ?? {}))
-const availableComponents = computed(() =>
-  Object.keys(project.componentDefs).filter((t) => !node.value?.components[t]),
-)
+/** 同名不可重复；相同 componentType 也不可重复 */
+const availableComponents = computed(() => {
+  if (!node.value) return []
+  return Object.keys(project.componentDefs).filter((t) =>
+    canAddComponent(node.value!, t, project.componentDefs),
+  )
+})
 
 const activeNames = ref<string[]>([])
 watch(

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
+import { computed, ref, shallowRef } from 'vue'
 import type { AssetEntry, ComponentDefs, FileEntry } from '../types'
 import { buildFileTree, collectImages, getFileHandleByPath, readTextFile, writeTextFile } from '../utils/fs'
 import { DEFAULT_COMPONENTS_JSON, createDefaultUIData, parseComponentDefs, serializeForDisk } from '../utils/node'
@@ -14,13 +14,31 @@ export const useProjectStore = defineStore('project', () => {
   const assets = ref<AssetEntry[]>([])
   /** 资产变更版本号，画布用它来失效纹理缓存 */
   const assetVersion = ref(0)
+  /** 资源管理器文件夹过滤：空字符串表示显示全部；否则只显示该目录（含子目录）内图片 */
+  const assetFolderFilter = ref('')
+
+  const filteredAssets = computed(() => {
+    const folder = assetFolderFilter.value
+    if (!folder) return assets.value
+    const prefix = folder.endsWith('/') ? folder : `${folder}/`
+    return assets.value.filter((a) => a.path.startsWith(prefix) || a.path === folder)
+  })
 
   let assetSignature = ''
 
   async function mountDirectory(handle: FileSystemDirectoryHandle) {
     dirHandle.value = handle
     projectName.value = handle.name
+    assetFolderFilter.value = ''
     await Promise.all([refreshFileTree(), loadComponentDefs(), refreshAssets()])
+  }
+
+  function setAssetFolderFilter(path: string) {
+    assetFolderFilter.value = path
+  }
+
+  function clearAssetFolderFilter() {
+    assetFolderFilter.value = ''
   }
 
   /** 文件夹是否为空（忽略 .DS_Store 等隐藏文件） */
@@ -141,6 +159,8 @@ export const useProjectStore = defineStore('project', () => {
     componentDefs,
     componentDefsText,
     assets,
+    filteredAssets,
+    assetFolderFilter,
     assetVersion,
     importProject,
     newProject,
@@ -150,5 +170,7 @@ export const useProjectStore = defineStore('project', () => {
     refreshAssets,
     getFileByPath,
     createProjectFile,
+    setAssetFolderFilter,
+    clearAssetFolderFilter,
   }
 })

@@ -6,6 +6,7 @@ export interface UINode {
   _id: string
   name: string
   active: boolean
+  /** 相对父节点的中心锚点坐标（画布中心为全局 (0,0)） */
   x: number
   y: number
   width: number
@@ -29,6 +30,13 @@ export interface PropDef {
 
 export interface ComponentDef {
   properties: Record<string, PropDef>
+  /** 可选前缀（新建节点命名等） */
+  prefix?: string
+  /**
+   * 组件类别。同一节点上，相同 componentType 的组件只能挂载一个；
+   * 未声明时仅按组件名去重。
+   */
+  componentType?: number
 }
 
 /** components.json 的整体结构 */
@@ -57,3 +65,5 @@ export interface Vec2 {
   x: number
   y: number
 }
+
+export type Orientation = 'landscape' | 'portrait'

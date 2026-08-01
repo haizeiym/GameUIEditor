@@ -20,6 +20,13 @@ async function onDblClick(entry: FileEntry) {
     ElMessage.error(`${entry.name} 不是合法的 UI 节点 JSON`)
   }
 }
+
+/** 单击文件夹 → 资源管理器只显示该目录下图片；单击文件则不改过滤 */
+function onClick(entry: FileEntry) {
+  if (entry.kind === 'directory') {
+    project.setAssetFolderFilter(entry.path)
+  }
+}
 </script>
 
 <template>
@@ -43,13 +50,18 @@ async function onDblClick(entry: FileEntry) {
         :data="project.fileTree"
         node-key="path"
         :props="{ label: 'name', children: 'children' }"
-        :expand-on-click-node="true"
+        :expand-on-click-node="false"
+        highlight-current
+        @node-click="onClick"
       >
         <template #default="{ data }">
           <span
             class="flex items-center gap-1 truncate text-[13px]"
             :class="{
               'text-amber-300': (data as FileEntry).kind === 'directory',
+              'font-semibold text-amber-200':
+                (data as FileEntry).kind === 'directory' &&
+                project.assetFolderFilter === (data as FileEntry).path,
               'text-sky-300':
                 (data as FileEntry).kind === 'file' && (data as FileEntry).name.endsWith('.json'),
               'font-semibold': editor.currentFilePath === (data as FileEntry).path,

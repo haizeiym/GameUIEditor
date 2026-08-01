@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
-import type { UINode } from '../types'
+import type { Orientation, UINode } from '../types'
 import { readTextFile, writeTextFile } from '../utils/fs'
 import {
+  canAddComponent,
   cloneWithNewIds,
   createComponentData,
   createNode,
@@ -15,6 +16,8 @@ import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
 const SAVE_DEBOUNCE_MS = 300
+const DEFAULT_WIDTH = 1366
+const DEFAULT_HEIGHT = 768
 
 export type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
 
@@ -32,6 +35,11 @@ export const useEditorStore = defineStore('editor', () => {
   const selectedId = ref<string | null>(null)
   const saveState = ref<SaveState>('idle')
 
+  /** 设计分辨率（默认横屏 1366×768）；画布中心为坐标原点 (0,0) */
+  const canvasWidth = ref(DEFAULT_WIDTH)
+  const canvasHeight = ref(DEFAULT_HEIGHT)
+  const orientation = ref<Orientation>('landscape')
+
   /** 撤销/重做栈存 JSON 快照（含 _id，保证撤销后选中态与树结构对得上） */
   const past = ref<string[]>([])
   const future = ref<string[]>([])
@@ -46,6 +54,48 @@ export const useEditorStore = defineStore('editor', () => {
   const isRootSelected = computed(() => selectedId.value !== null && selectedId.value === rootId.value)
   const canUndo = computed(() => past.value.length > 0)
   const canRedo = computed(() => future.value.length > 0)
+  const resolutionLabel = computed(() => `${canvasWidth.value}×${canvasHeight.value}`)
+
+  function syncResolutionFromRoot(root: UINode) {
+    canvasWidth.value = root.width
+    canvasHeight.value = root.height
+    orientation.value = root.width >= root.height ? 'landscape' : 'portrait'
+  }
+
+  /** 将设计分辨率应用到根节点宽高（坐标原点仍为画布中心） */
+  function applyResolutionToRoot(width: number, height: number, pushHistory = true) {
+    const root = currentUIData.value
+    if (!root) {
+      canvasWidth.value = width
+      canvasHeight.value = height
+      orientation.value = width >= height ? 'landscape' : 'portrait'
+      return
+    }
+    if (root.width === width && root.height === height) {
+      canvasWidth.value = width
+      canvasHeight.value = height
+      orientation.value = width >= height ? 'landscape' : 'portrait'
+      return
+    }
+    root.width = width
+    root.height = height
+    canvasWidth.value = width
+    canvasHeight.value = height
+    orientation.value = width >= height ? 'landscape' : 'portrait'
+    if (pushHistory) commit()
+  }
+
+  function toggleOrientation() {
+    const w = canvasHeight.value
+    const h = canvasWidth.value
+    applyResolutionToRoot(w, h, true)
+  }
+
+  function setResolution(width: number, height: number) {
+    const w = Math.max(1, Math.round(width))
+    const h = Math.max(1, Math.round(height))
+    applyResolutionToRoot(w, h, true)
+  }
 
   function snapshot(): string {
     return JSON.stringify(currentUIData.value)
@@ -148,6 +198,7 @@ export const useEditorStore = defineStore('editor', () => {
     currentFileHandle.value = handle
     currentFilePath.value = path
     selectedId.value = data._id
+    syncResolutionFromRoot(data)
     past.value = []
     future.value = []
     lastCommitted = snapshot()
@@ -232,7 +283,7 @@ export const useEditorStore = defineStore('editor', () => {
   function addComponent(nodeId: string, type: string) {
     const node = findNodeById(currentUIData.value, nodeId)
     const def = project.componentDefs[type]
-    if (!node || !def || node.components[type]) return
+    if (!node || !def || !canAddComponent(node, type, project.componentDefs)) return
     node.components[type] = createComponentData(def)
     commit()
   }
@@ -255,6 +306,12 @@ export const useEditorStore = defineStore('editor', () => {
     saveState,
     canUndo,
     canRedo,
+    canvasWidth,
+    canvasHeight,
+    orientation,
+    resolutionLabel,
+    toggleOrientation,
+    setResolution,
     commit,
     undo,
     redo,

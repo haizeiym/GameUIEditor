@@ -1,21 +1,25 @@
 {
-    "UIComponent": {
-        "properties": {
-            "size": { "type": "v2", "default": "(100,50)" },
-            "anchor": { "type": "v2", "default": "(0.5,0.5)" }
-        }
+  "UIComponent": {
+    "properties": {
+      "size": { "type": "v2", "default": "(100,50)" },
+      "anchor": { "type": "v2", "default": "(0.5,0.5)" }
     },
-    "OpacityComponent": {
-        "properties": {
-            "opacity": { "type": "number", "default": 1.0 }
-        }
+    "componentType": 0
+  },
+  "OpacityComponent": {
+    "properties": {
+      "opacity": { "type": "number", "default": 1.0 }
     },
-   "SpriteComponent": {
+    "componentType": 2
+  },
+  "SpriteComponent": {
     "properties": {
       "framePath": { "type": "string", "default": "" },
       "color": { "type": "color", "default": "#FFFFFF" },
       "sizeMode": { "type": "number", "default": 2 },
       "type": { "type": "number", "default": 1 }
-    }
+    },
+    "prefix": "Img",
+    "componentType": 1
   }
 }

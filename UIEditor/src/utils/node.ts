@@ -23,12 +23,32 @@ export function createNode(name: string, zIndex = 0): UINode {
   }
 }
 
-/** 新建 UI 界面时的最小合法结构：有且仅有一个根节点 */
-export function createDefaultUIData(): UINode {
+/** 新建 UI 界面时的最小合法结构：有且仅有一个根节点（默认分辨率 1366×768） */
+export function createDefaultUIData(width = 1366, height = 768): UINode {
   const root = createNode('Root')
-  root.width = 960
-  root.height = 640
+  root.width = width
+  root.height = height
   return root
+}
+
+/**
+ * 判断节点是否还能添加指定组件。
+ * 规则：同名组件只能一个；若定义了 componentType，则同类型也只能一个。
+ */
+export function canAddComponent(
+  node: UINode,
+  type: string,
+  defs: ComponentDefs,
+): boolean {
+  if (node.components[type]) return false
+  const def = defs[type]
+  if (!def) return false
+  if (def.componentType == null) return true
+  for (const mounted of Object.keys(node.components)) {
+    const mDef = defs[mounted]
+    if (mDef && mDef.componentType === def.componentType) return false
+  }
+  return true
 }
 
 /**
@@ -177,12 +197,14 @@ export const DEFAULT_COMPONENTS_JSON = `{
     "properties": {
       "size": { "type": "v2", "default": "(100,50)" },
       "anchor": { "type": "v2", "default": "(0.5,0.5)" }
-    }
+    },
+    "componentType": 0
   },
   "OpacityComponent": {
     "properties": {
       "opacity": { "type": "number", "default": 1.0, "min": 0, "max": 1, "step": 0.05 }
-    }
+    },
+    "componentType": 2
   },
   "SpriteComponent": {
     "properties": {
@@ -190,7 +212,9 @@ export const DEFAULT_COMPONENTS_JSON = `{
       "color": { "type": "color", "default": "#FFFFFF" },
       "sizeMode": { "type": "number", "default": 2 },
       "type": { "type": "number", "default": 1 }
-    }
+    },
+    "prefix": "Img",
+    "componentType": 1
   }
 }
 `
