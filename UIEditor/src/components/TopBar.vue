@@ -163,6 +163,40 @@ async function onImportPsd() {
     if (!isAbort(err)) ElMessage.error(`导入 PSD 失败：${String(err)}`)
   }
 }
+
+async function onExportCocosPrefab() {
+  if (!editor.currentUIData) {
+    ElMessage.warning('当前没有打开的 UI 界面')
+    return
+  }
+  if (!project.dirHandle) {
+    ElMessage.warning('请先新建或导入项目（导出需读取项目内图片）')
+    return
+  }
+  try {
+    const result = await editor.exportCocosCreatorPrefab(async (baseName) => {
+      try {
+        await ElMessageBox.confirm(
+          `导出目录下已存在「${baseName}/」，是否覆盖？`,
+          '覆盖确认',
+          { confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning' },
+        )
+        return true
+      } catch {
+        return false
+      }
+    })
+    if (!result) {
+      ElMessage.info('已取消导出')
+      return
+    }
+    ElMessage.success(
+      `Prefab 导出完成：${result.prefabPath}（${result.imageCount} 张图片）`,
+    )
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导出 Prefab 失败：${String(err)}`)
+  }
+}
 </script>
 
 <template>
@@ -196,6 +230,13 @@ async function onImportPsd() {
         @click="onImportPsd"
       >
         导入PSD
+      </el-button>
+      <el-button
+        :disabled="!editor.currentUIData || !project.dirHandle"
+        title="导出为 Cocos Creator 3.8 Prefab（含图片与 .meta）"
+        @click="onExportCocosPrefab"
+      >
+        导出Cocos Prefab
       </el-button>
     </el-button-group>
 

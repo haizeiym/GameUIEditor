@@ -44,7 +44,7 @@
 
 ## 1. 顶部导航栏 (Top Bar)
 - **项目操作**：【新建项目】（初始化目录结构）、【导入项目】（调用 `showDirectoryPicker` 挂载本地文件夹并获取句柄）。
-- **UI文件操作**：【新建UI界面】（在项目下创建默认JSON）、【导入UI界面】、【导出UI界面】、【切换横竖屏】(默认横屏)、【设置分辨率】(默认1366x768)、【导入PSD】。
+- **UI文件操作**：【新建UI界面】（在项目下创建默认JSON）、【导入UI界面】、【导出UI界面】、【切换横竖屏】(默认横屏)、【设置分辨率】(默认1366x768)、【导入PSD】、【导出Cocos Creator3.x Prefab】。
 - **配置编辑**：点击【编辑组件库】按钮弹出 Modal 模态框，内置一个 Monaco Editor 或简易文本编辑器展示 `./components.json`。点击“保存”时，验证 JSON 合法性，直接写回本地文件并刷新 Pinia 状态中的组件预设。
 
 ## 2. 左侧控制面板 (Left Panel)
@@ -99,3 +99,49 @@
 - **尺寸与位置**：各节点 `width`/`height` 与 PS 图层像素尺寸一致（优先图层 `canvas` 宽高，与导出 PNG 一致）；`x`/`y` 由 PS 图层 `left`/`top` 换算为编辑器中心锚点（Root 中心为 `(0,0)`），保持与 PS 相同的屏幕位置，禁止额外缩放或取整偏移。图层组优先用 PS 组矩形，无效时用子节点并集；组内子节点为相对父节点的本地坐标。
 - **透明度**：图层 opacity 规范为 `0–1` 后写入 `OpacityComponent`（完全不透明可不挂组件）。
 - **图层顺序（重要）**：Photoshop 面板自上而下与引擎渲染顺序**相反**，但 `ag-psd` 读盘后的 `children` **已是引擎顺序（底层在前）**，创建节点时须**按该顺序直接生成，禁止再 `reverse`**，且禁止用 `zIndex` 控层。示例：面板自上而下为 `a → b → c → d → e（`e` 最下层）时，节点树须为 `Root → e → d → c → b → a`。图层组内同样按 `ag-psd` 顺序直出；组内子节点为相对父节点坐标。
+
+
+# 六、 导出 Cocos Creator 3.x Prefab
+
+## 1. 目标与入口
+- 顶部【导出 Cocos Creator3.x Prefab】：将**当前打开的 UI JSON**导出为可直接拖入 Creator 的资源包。
+- **目标引擎版本**：Cocos Creator **3.8.x**（Prefab / `.meta` 字段以该版本为准；若后续兼容其它小版本需单独声明）。
+- **导出位置**：通过目录选择器选择**独立导出目录**（不强制写回 UI 工程源目录），避免与编辑器用的 `framePath` 源文件混淆。
+- 如界面为 `test.json`，导出目录结构为：
+  - `{导出根}/test/UI/`：本 Prefab 用到的图片（及对应 `.meta`）
+  - `{导出根}/test/test.prefab`：Cocos Prefab
+  - `{导出根}/test/test.prefab.meta`：Prefab 的 meta
+  - 各层文件夹均需生成目录 `.meta`
+
+## 2. 资源与引用（UUID，非路径字符串）
+- **只打包**当前 JSON 中所有 `SpriteComponent.framePath` **实际引用到**的图片；缺图时导出失败并提示缺失路径。
+- Prefab 内 `cc.Sprite._spriteFrame` 必须引用 **SpriteFrame 的 UUID**（形如 `uuid@f9941`），**禁止**把 `framePath` 字符串直接写进 Prefab。
+- 导出时为每张图片生成稳定 UUID（同路径同图多次导出尽量保持 UUID 不变，避免引用断裂），并写入：
+  - `xxx.png` + `xxx.png.meta`（`importer: image`，含 `texture` / `sprite-frame` 子 meta）
+  - Prefab 通过子资源 UUID 引用 `spriteFrame`
+- 覆盖策略：目标已存在同名目录/文件时提示确认后覆盖。
+
+## 3. 节点与组件映射
+- 每个 JSON 节点 → `cc.Node` + `cc.UITransform`（`_contentSize` = width/height，锚点 `(0.5, 0.5)`）。
+- `SpriteComponent` → `cc.Sprite`：写入 `_spriteFrame`、`_color`、`_type`、`_sizeMode`。
+- `OpacityComponent` → `cc.UIOpacity`（opacity 为 `0–1`，写入引擎对应字段）。
+- 无 Sprite / Opacity 的节点仅保留 Node + UITransform。
+- 节点 `_layer` 使用 **UI_2D**；根节点名称可用 JSON 根名（如 `Root`）。
+- **枚举映射**：JSON 中的标签字符串须转为 Creator 数值枚举后再写入 Prefab：
+  - `sizeMode`：`CUSTOM` / `TRIMMED` / `RAW` → `SizeMode` 对应数值
+  - `type`：`SIMPLE` / `SLICED` / `TILED` / `FILLED` → `Sprite.Type` 对应数值
+- **FILLED**：当前组件库未定义 fill 细分属性时，按默认填充即可；后续扩展再补 `fillType` / `fillRange`。
+
+## 4. 坐标系与层级
+- 编辑器/PSD 为 Y 向下，Cocos UI 为 Y 向上：导出时节点本地坐标 **`y = -y`**（与运行时 `ParseJsonUI` 一致）。
+- `x`、宽高不翻转；旋转/缩放若暂无数据则按单位变换写出。
+- 子节点顺序按 JSON `children` **原序**写入（底层在前、顶层在后），禁止再用 `zIndex` 重排。
+
+## 5. Prefab 结构要求
+- 输出标准 Creator 3.8 Prefab JSON 数组：含 `cc.Prefab`、各 `cc.Node`、组件、`cc.PrefabInfo` / `cc.CompPrefabInfo` 等必要对象，`__id__` 引用正确。
+- 导出包拷贝进任意空 Creator 3.8 工程的 `assets` 后：无缺失引用报错，可直接在编辑器中打开 Prefab，层级、位置、贴图、Sprite 类型与尺寸模式与编辑器预览一致。
+
+## 6. 边界与验收
+- 图层/节点名需做文件系统安全处理（非法字符替换）；同名图片冲突时保留路径区分或重命名并同步更新引用。
+- 验收清单：打开 Prefab 无红字 → 抽查带图节点 SpriteFrame 有效 → 抽查相对 Root 的位置（含 Y 翻转）→ 抽查 SLICED/TRIMMED 等枚举是否正确。
+- 可选（非必须）：根节点挂 `Widget` 全屏适配；同目录附带原 JSON 便于对照；图集（Atlas）打包。

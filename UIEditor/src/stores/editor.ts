@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { Orientation, UINode } from '../types'
+import { exportCocosPrefab, pathExists } from '../utils/cocosPrefab'
 import { readTextFile, writeTextFile } from '../utils/fs'
 import {
   canAddComponent,
@@ -12,6 +13,7 @@ import {
   normalizeUIData,
   serializeForDisk,
 } from '../utils/node'
+import { sanitizeFsName } from '../utils/psd'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -227,6 +229,37 @@ export const useEditorStore = defineStore('editor', () => {
     await writeTextFile(handle, serializeForDisk(currentUIData.value))
   }
 
+  /**
+   * 导出当前 UI 为 Cocos Creator 3.8 Prefab 资源包。
+   * @param confirmOverwrite 目标目录已存在时询问是否覆盖；返回 false 则取消
+   */
+  async function exportCocosCreatorPrefab(
+    confirmOverwrite?: (baseName: string) => Promise<boolean>,
+  ) {
+    if (!currentUIData.value) throw new Error('当前没有打开的 UI 界面')
+    if (!project.dirHandle) throw new Error('请先新建或导入项目（导出需读取项目内图片）')
+
+    const exportRoot = await window.showDirectoryPicker({
+      mode: 'readwrite',
+      id: 'ui-editor-cocos-export',
+    })
+
+    const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
+    const baseName = sanitizeFsName(rawName) || 'ui'
+
+    if (await pathExists(exportRoot, baseName)) {
+      const ok = confirmOverwrite ? await confirmOverwrite(baseName) : true
+      if (!ok) return null
+    }
+
+    return exportCocosPrefab({
+      exportRoot,
+      baseName,
+      root: currentUIData.value,
+      readImage: (path) => project.getFileByPath(path),
+    })
+  }
+
   // ---------- 节点操作 ----------
 
   function addChild(parentId: string) {
@@ -320,6 +353,7 @@ export const useEditorStore = defineStore('editor', () => {
     loadUIFile,
     importUIFile,
     exportUIFile,
+    exportCocosCreatorPrefab,
     addChild,
     duplicateNode,
     removeNode,
