@@ -53,6 +53,55 @@ const FALLBACK_COMPONENTS_JSON = `{
       }
     },
     "componentType": 1
+  },
+  "LabelComponent": {
+    "properties": {
+      "text": { "type": "string", "default": "" },
+      "color": { "type": "color", "default": "#FFFFFF" },
+      "fontSize": { "type": "number", "default": 24 },
+      "lineHeight": { "type": "number", "default": 24 },
+      "fontFamily": { "type": "string", "default": "Arial" },
+      "enableWrapText": { "type": "boolean", "default": false },
+      "isBold": { "type": "boolean", "default": false },
+      "horizontalAlign": {
+        "type": "enum",
+        "default": "CENTER",
+        "options": [
+          { "label": "LEFT", "value": "LEFT" },
+          { "label": "CENTER", "value": "CENTER" },
+          { "label": "RIGHT", "value": "RIGHT" }
+        ]
+      },
+      "verticalAlign": {
+        "type": "enum",
+        "default": "CENTER",
+        "options": [
+          { "label": "TOP", "value": "TOP" },
+          { "label": "CENTER", "value": "CENTER" },
+          { "label": "BOTTOM", "value": "BOTTOM" }
+        ]
+      },
+      "cacheMode": {
+        "type": "enum",
+        "default": "BITMAP",
+        "options": [
+          { "label": "NONE", "value": "NONE" },
+          { "label": "BITMAP", "value": "BITMAP" },
+          { "label": "CHAR", "value": "CHAR" }
+        ]
+      },
+      "overflow": {
+        "type": "enum",
+        "default": "NONE",
+        "options": [
+          { "label": "NONE", "value": "NONE" },
+          { "label": "CLAMP", "value": "CLAMP" },
+          { "label": "RESIZE_HEIGHT", "value": "RESIZE_HEIGHT" },
+          { "label": "SHRINK", "value": "SHRINK" }
+        ]
+      }
+    },
+    "componentType": 1
   }
 }
 `

@@ -134,13 +134,17 @@
 ## 3. 节点与组件映射
 - 每个 JSON 节点 → `cc.Node` + `cc.UITransform`（`_contentSize` = width/height，锚点 `(0.5, 0.5)`）。
 - `SpriteComponent` → `cc.Sprite`：写入 `_spriteFrame`、`_color`、`_type`、`_sizeMode`。
+- `LabelComponent` → `cc.Label`：写入 `_string`、`_color`、`_fontSize`、`_lineHeight`、`_fontFamily`、`_enableWrapText`、`_isBold`、对齐 / `overflow` / `cacheMode`（标签字符串 → 引擎数值枚举）；系统字体 `_isSystemFontUsed: true`。
 - `OpacityComponent` → `cc.UIOpacity`（opacity 为 `0–1`，写入引擎对应字段）。
-- 无 Sprite / Opacity 的节点仅保留 Node + UITransform。
+- 无 Sprite / Label / Opacity 的节点仅保留 Node + UITransform。
 - 节点 `_layer` 使用 **UI_2D**；根节点名称可用 JSON 根名（如 `Root`）。
 - **枚举映射**：JSON 中的标签字符串须转为 Creator 数值枚举后再写入 Prefab：
   - `sizeMode`：`CUSTOM` / `TRIMMED` / `RAW` → `SizeMode` 对应数值
   - `type`：`SIMPLE` / `SLICED` / `TILED` / `FILLED` → `Sprite.Type` 对应数值
+  - Label `horizontalAlign` / `verticalAlign`：`LEFT|TOP`=0、`CENTER`=1、`RIGHT|BOTTOM`=2
+  - Label `overflow`：`NONE`/`CLAMP`/`SHRINK`/`RESIZE_HEIGHT` → 0–3；`cacheMode`：`NONE`/`BITMAP`/`CHAR` → 0–2
 - **FILLED**：当前组件库未定义 fill 细分属性时，按默认填充即可；后续扩展再补 `fillType` / `fillRange`。
+- Sprite 与 Label 同属 `componentType: 1`，同一节点不可同时挂载。
 
 ## 4. 坐标系与层级
 - 编辑器/PSD 为 Y 向下，Cocos UI 为 Y 向上：导出时节点本地坐标 **`y = -y`**（与运行时 `ParseJsonUI` 一致）。

@@ -8,9 +8,11 @@ import {
   Point,
   Rectangle,
   Sprite,
+  Text,
   Texture,
   TilingSprite,
   type FederatedPointerEvent,
+  type TextStyleAlign,
 } from 'pixi.js'
 
 /** 对齐 Cocos Sprite.SizeMode（JSON 存 label 名） */
@@ -134,6 +136,57 @@ function localRect(w: number, h: number) {
   return { x: -w / 2, y: -h / 2, w, h }
 }
 
+function labelAlign(v: unknown): TextStyleAlign {
+  const key = typeof v === 'string' ? v.toUpperCase() : ''
+  if (key === 'LEFT') return 'left'
+  if (key === 'RIGHT') return 'right'
+  return 'center'
+}
+
+/** 将 LabelComponent 属性同步到 Pixi Text（预览近似 Cocos Label） */
+function applyLabelVisual(text: Text, node: UINode, labelComp: Record<string, unknown>) {
+  const content = typeof labelComp.text === 'string' ? labelComp.text : ''
+  const fontSize = typeof labelComp.fontSize === 'number' ? Math.max(1, labelComp.fontSize) : 24
+  const lineHeight =
+    typeof labelComp.lineHeight === 'number' ? Math.max(1, labelComp.lineHeight) : fontSize
+  const fontFamily =
+    typeof labelComp.fontFamily === 'string' && labelComp.fontFamily.trim()
+      ? labelComp.fontFamily
+      : 'Arial'
+  const overflow = typeof labelComp.overflow === 'string' ? labelComp.overflow.toUpperCase() : 'NONE'
+  const wrap =
+    labelComp.enableWrapText === true || overflow === 'CLAMP' || overflow === 'RESIZE_HEIGHT'
+  const boxW = Math.max(1, node.width)
+  const boxH = Math.max(1, node.height)
+
+  text.text = content.length ? content : ' '
+  text.style = {
+    fontFamily,
+    fontSize,
+    fontWeight: labelComp.isBold === true ? 'bold' : 'normal',
+    fill: toTint(labelComp.color),
+    align: labelAlign(labelComp.horizontalAlign),
+    wordWrap: wrap,
+    wordWrapWidth: boxW,
+    lineHeight,
+    breakWords: wrap,
+  }
+
+  // 水平锚点随对齐；垂直默认中心，TOP/BOTTOM 微调
+  const h = typeof labelComp.horizontalAlign === 'string' ? labelComp.horizontalAlign.toUpperCase() : 'CENTER'
+  const v = typeof labelComp.verticalAlign === 'string' ? labelComp.verticalAlign.toUpperCase() : 'CENTER'
+  const ax = h === 'LEFT' ? 0 : h === 'RIGHT' ? 1 : 0.5
+  const ay = v === 'TOP' ? 0 : v === 'BOTTOM' ? 1 : 0.5
+  text.anchor.set(ax, ay)
+  text.position.set((ax - 0.5) * boxW, (ay - 0.5) * boxH)
+  text.scale.set(1)
+
+  if (overflow === 'SHRINK' && text.width > boxW && text.width > 0) {
+    const s = boxW / text.width
+    text.scale.set(s)
+  }
+}
+
 // ---------- 场景构建（中心锚点；画布中心 = 全局 (0,0)） ----------
 
 function buildNode(node: UINode): Container {
@@ -155,6 +208,7 @@ function buildNode(node: UINode): Container {
   }
 
   const spriteComp = node.components['SpriteComponent']
+  const labelComp = node.components['LabelComponent']
   const framePath = typeof spriteComp?.framePath === 'string' ? spriteComp.framePath : ''
   if (spriteComp && framePath) {
     const sizeMode = resolveSizeMode(spriteComp.sizeMode)
@@ -205,6 +259,12 @@ function buildNode(node: UINode): Container {
       applySpriteVisualSize(display, node, texture, sizeMode)
       parent.addChildAt(display, idx)
     })
+  } else if (labelComp) {
+    const text = new Text({ text: ' ' })
+    text.label = '__self'
+    text.eventMode = 'none'
+    applyLabelVisual(text, node, labelComp)
+    c.addChild(text)
   } else {
     const g = new Graphics()
       .rect(lr.x, lr.y, node.width, node.height)
@@ -275,6 +335,7 @@ function syncNodeVisual(c: Container, node: UINode) {
   c.position.set(node.x, node.y)
   const lr = localRect(node.width, node.height)
   const spriteComp = node.components['SpriteComponent']
+  const labelComp = node.components['LabelComponent']
   const sizeMode = resolveSizeMode(spriteComp?.sizeMode)
   for (const child of c.children) {
     if (child.label !== '__self') continue
@@ -289,6 +350,8 @@ function syncNodeVisual(c: Container, node: UINode) {
       if ('tint' in child && spriteComp) {
         ;(child as Sprite).tint = toTint(spriteComp.color)
       }
+    } else if (child instanceof Text && labelComp) {
+      applyLabelVisual(child, node, labelComp)
     } else if (child instanceof Graphics) {
       child
         .clear()

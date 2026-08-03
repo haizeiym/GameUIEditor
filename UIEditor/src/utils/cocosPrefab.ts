@@ -17,6 +17,12 @@ const SPRITE_FRAME_SUB = 'f9941'
 
 const SizeMode = { CUSTOM: 0, TRIMMED: 1, RAW: 2 } as const
 const SpriteType = { SIMPLE: 0, SLICED: 1, TILED: 2, FILLED: 3 } as const
+/** Cocos HorizontalTextAlignment / VerticalTextAlignment */
+const TextAlign = { LEFT: 0, CENTER: 1, RIGHT: 2, TOP: 0, BOTTOM: 2 } as const
+/** Cocos Overflow */
+const LabelOverflow = { NONE: 0, CLAMP: 1, SHRINK: 2, RESIZE_HEIGHT: 3 } as const
+/** Cocos CacheMode */
+const LabelCacheMode = { NONE: 0, BITMAP: 1, CHAR: 2 } as const
 
 export interface CocosPrefabExportResult {
   baseName: string
@@ -64,6 +70,44 @@ function resolveSpriteType(v: unknown): number {
   }
   if (typeof v === 'number' && v >= 0 && v <= 3) return v
   return SpriteType.SIMPLE
+}
+
+function resolveHAlign(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase()
+    if (key === 'LEFT') return TextAlign.LEFT
+    if (key === 'RIGHT') return TextAlign.RIGHT
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 2) return v
+  return TextAlign.CENTER
+}
+
+function resolveVAlign(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase()
+    if (key === 'TOP') return TextAlign.TOP
+    if (key === 'BOTTOM') return TextAlign.BOTTOM
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 2) return v
+  return TextAlign.CENTER
+}
+
+function resolveOverflow(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase() as keyof typeof LabelOverflow
+    if (key in LabelOverflow) return LabelOverflow[key]
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 3) return v
+  return LabelOverflow.NONE
+}
+
+function resolveCacheMode(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.toUpperCase() as keyof typeof LabelCacheMode
+    if (key in LabelCacheMode) return LabelCacheMode[key]
+  }
+  if (typeof v === 'number' && v >= 0 && v <= 2) return v
+  return LabelCacheMode.BITMAP
 }
 
 /** 由字符串种子生成稳定 UUID（同路径多次导出保持不变） */
@@ -469,6 +513,58 @@ export function buildPrefabObjects(
       })
       objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
       compIds.push(spriteId)
+    }
+
+    const label = node.components['LabelComponent']
+    if (label) {
+      const c = parseColor(label.color)
+      const fontSize = typeof label.fontSize === 'number' ? label.fontSize : 24
+      const lineHeight = typeof label.lineHeight === 'number' ? label.lineHeight : fontSize
+      const fontFamily =
+        typeof label.fontFamily === 'string' && label.fontFamily.trim()
+          ? label.fontFamily
+          : 'Arial'
+      const labelId = objects.length
+      objects.push({
+        __type__: 'cc.Label',
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: labelId + 1 },
+        _customMaterial: null,
+        _srcBlendFactor: 2,
+        _dstBlendFactor: 4,
+        _color: colorObj(c),
+        _string: typeof label.text === 'string' ? label.text : '',
+        _horizontalAlign: resolveHAlign(label.horizontalAlign),
+        _verticalAlign: resolveVAlign(label.verticalAlign),
+        _actualFontSize: fontSize,
+        _fontSize: fontSize,
+        _fontFamily: fontFamily,
+        _lineHeight: lineHeight,
+        _overflow: resolveOverflow(label.overflow),
+        _enableWrapText: label.enableWrapText === true,
+        _font: null,
+        _isSystemFontUsed: true,
+        _spacingX: 0,
+        _isItalic: false,
+        _isBold: label.isBold === true,
+        _isUnderline: false,
+        _underlineHeight: 2,
+        _cacheMode: resolveCacheMode(label.cacheMode),
+        _enableOutline: false,
+        _outlineColor: colorObj({ r: 0, g: 0, b: 0, a: 255 }),
+        _outlineWidth: 2,
+        _enableShadow: false,
+        _shadowColor: colorObj({ r: 0, g: 0, b: 0, a: 255 }),
+        _shadowOffset: vec2(2, 2),
+        _shadowBlur: 2,
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(labelId)
     }
 
     const opacityComp = node.components['OpacityComponent']
