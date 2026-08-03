@@ -9,7 +9,7 @@ import {
   writeBinaryFile,
   writeTextFile,
 } from './fs'
-import { sanitizeFsName } from './psd'
+import { sanitizeFsName } from './fsName'
 
 const UI_2D_LAYER = 1073741824
 const TEXTURE_SUB = '6c48a'
@@ -22,6 +22,20 @@ export interface CocosPrefabExportResult {
   baseName: string
   prefabPath: string
   imageCount: number
+}
+
+/** 与具体 FS 解耦的写出接口（网页 File System Access / Node fs 均可实现） */
+export interface PrefabWriteFs {
+  writeText(relativePath: string, text: string): Promise<void>
+  writeBinary(relativePath: string, data: Uint8Array): Promise<void>
+}
+
+export interface CocosPrefabExportCoreOptions {
+  baseName: string
+  root: UINode
+  /** 按项目相对路径读取图片字节 */
+  readImageBytes: (path: string) => Promise<Uint8Array | null>
+  fs: PrefabWriteFs
 }
 
 export interface CocosPrefabExportOptions {
@@ -149,11 +163,72 @@ function extForMeta(fileName: string): string {
   return '.png'
 }
 
-async function readImageSize(file: File): Promise<{ width: number; height: number }> {
-  const bitmap = await createImageBitmap(file)
-  const size = { width: bitmap.width, height: bitmap.height }
-  bitmap.close()
-  return size
+function readU32BE(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset]! << 24) |
+      (bytes[offset + 1]! << 16) |
+      (bytes[offset + 2]! << 8) |
+      bytes[offset + 3]!) >>>
+    0
+  )
+}
+
+/** 从 PNG / JPEG 文件头读取宽高（不依赖 DOM） */
+export function readImageSizeFromBytes(bytes: Uint8Array): { width: number; height: number } {
+  // PNG
+  if (
+    bytes.length >= 24 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return { width: readU32BE(bytes, 16), height: readU32BE(bytes, 20) }
+  }
+  // JPEG
+  if (bytes.length > 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let i = 2
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) {
+        i += 1
+        continue
+      }
+      const marker = bytes[i + 1]!
+      if (marker === 0xd9 || marker === 0xda) break
+      const len = (bytes[i + 2]! << 8) | bytes[i + 3]!
+      if (
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      ) {
+        const height = (bytes[i + 5]! << 8) | bytes[i + 6]!
+        const width = (bytes[i + 7]! << 8) | bytes[i + 8]!
+        return { width, height }
+      }
+      i += 2 + len
+    }
+  }
+  // WebP (VP8X / VP8 / VP8L) — 最小支持
+  if (
+    bytes.length >= 30 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    const chunk = String.fromCharCode(bytes[12]!, bytes[13]!, bytes[14]!, bytes[15]!)
+    if (chunk === 'VP8X' && bytes.length >= 30) {
+      const width = 1 + bytes[24]! + (bytes[25]! << 8) + (bytes[26]! << 16)
+      const height = 1 + bytes[27]! + (bytes[28]! << 8) + (bytes[29]! << 16)
+      return { width, height }
+    }
+  }
+  throw new Error('无法识别图片尺寸（仅支持 PNG / JPEG / WebP）')
 }
 
 function buildDirectoryMeta(uuid: string): PrefabObject {
@@ -459,30 +534,29 @@ export async function pathExists(
 }
 
 /**
- * 将当前 UI 导出到独立目录：
+ * IO 无关的 Prefab 导出核心：写出
  * `{baseName}/UI/*` + `{baseName}/{baseName}.prefab` + 各级 .meta
  */
-export async function exportCocosPrefab(
-  options: CocosPrefabExportOptions,
+export async function exportCocosPrefabCore(
+  options: CocosPrefabExportCoreOptions,
 ): Promise<CocosPrefabExportResult> {
-  const { exportRoot, root, readImage } = options
+  const { root, readImageBytes, fs } = options
   const baseName = sanitizeFsName(options.baseName) || 'ui'
   const framePaths = collectFramePaths(root)
   const missing: string[] = []
   const usedNames = new Set<string>()
-  /** 原始 framePath → 导出文件名 */
   const pathToExportName = new Map<string, string>()
-  /** 原始 framePath → 图片 UUID（不含 @sub） */
   const pathToUuid = new Map<string, string>()
+  const pathToBytes = new Map<string, Uint8Array>()
 
   for (const path of framePaths) {
-    const file = await readImage(path)
-    if (!file) {
+    const bytes = await readImageBytes(path)
+    if (!bytes) {
       missing.push(path)
       continue
     }
-    const exportName = uniqueFileName(usedNames, path)
-    pathToExportName.set(path, exportName)
+    pathToBytes.set(path, bytes)
+    pathToExportName.set(path, uniqueFileName(usedNames, path))
     pathToUuid.set(path, stableUuid(`cocos-image:${path}`))
   }
 
@@ -490,54 +564,38 @@ export async function exportCocosPrefab(
     throw new Error(`缺少图片资源：\n${missing.join('\n')}`)
   }
 
-  const packDir = await getDirectoryHandleByPath(exportRoot, baseName, true)
-  if (!packDir) throw new Error('无法创建导出目录')
-  const uiDir = await getDirectoryHandleByPath(packDir, 'UI', true)
-  if (!uiDir) throw new Error('无法创建 UI 目录')
-
-  // 目录 meta
-  await writeMeta(
-    exportRoot,
+  await fs.writeText(
     `${baseName}.meta`,
-    buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}`)),
+    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}`)), null, 2)}\n`,
   )
-  await writeMeta(
-    exportRoot,
+  await fs.writeText(
     `${baseName}/UI.meta`,
-    buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`)),
+    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`)), null, 2)}\n`,
   )
 
   for (const path of framePaths) {
-    const file = await readImage(path)
-    if (!file) continue
+    const bytes = pathToBytes.get(path)!
     const exportName = pathToExportName.get(path)!
     const uuid = pathToUuid.get(path)!
-    const { width, height } = await readImageSize(file)
+    const { width, height } = readImageSizeFromBytes(bytes)
     const displayName = exportName.replace(/\.[^.]+$/, '')
     const fileExt = extForMeta(exportName)
 
-    const imgHandle = await getFileHandleByPath(uiDir, exportName, true)
-    if (!imgHandle) throw new Error(`无法写入图片 ${exportName}`)
-    await writeBinaryFile(imgHandle, file)
-
-    await writeMeta(
-      exportRoot,
+    await fs.writeBinary(`${baseName}/UI/${exportName}`, bytes)
+    await fs.writeText(
       `${baseName}/UI/${exportName}.meta`,
-      buildImageMeta(uuid, displayName, width, height, fileExt),
+      `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt), null, 2)}\n`,
     )
   }
 
   const prefabObjects = buildPrefabObjects(root, pathToUuid, baseName)
-  const prefabText = `${JSON.stringify(prefabObjects, null, 2)}\n`
-  const prefabHandle = await getFileHandleByPath(packDir, `${baseName}.prefab`, true)
-  if (!prefabHandle) throw new Error('无法写入 prefab')
-  await writeTextFile(prefabHandle, prefabText)
-
-  const prefabUuid = stableUuid(`cocos-prefab:${baseName}`)
-  await writeMeta(
-    exportRoot,
+  await fs.writeText(
+    `${baseName}/${baseName}.prefab`,
+    `${JSON.stringify(prefabObjects, null, 2)}\n`,
+  )
+  await fs.writeText(
     `${baseName}/${baseName}.prefab.meta`,
-    buildPrefabMeta(prefabUuid, baseName),
+    `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName), null, 2)}\n`,
   )
 
   return {
@@ -547,12 +605,39 @@ export async function exportCocosPrefab(
   }
 }
 
-async function writeMeta(
-  root: FileSystemDirectoryHandle,
-  relativePath: string,
-  data: PrefabObject,
-): Promise<void> {
-  const handle = await getFileHandleByPath(root, relativePath, true)
-  if (!handle) throw new Error(`无法写入 meta：${relativePath}`)
-  await writeTextFile(handle, `${JSON.stringify(data, null, 2)}\n`)
+/**
+ * 浏览器 File System Access API 适配：将当前 UI 导出到独立目录。
+ */
+export async function exportCocosPrefab(
+  options: CocosPrefabExportOptions,
+): Promise<CocosPrefabExportResult> {
+  const { exportRoot, root, readImage } = options
+  // 确保包目录存在
+  const baseName = sanitizeFsName(options.baseName) || 'ui'
+  const packDir = await getDirectoryHandleByPath(exportRoot, baseName, true)
+  if (!packDir) throw new Error('无法创建导出目录')
+  const uiDir = await getDirectoryHandleByPath(packDir, 'UI', true)
+  if (!uiDir) throw new Error('无法创建 UI 目录')
+
+  return exportCocosPrefabCore({
+    baseName,
+    root,
+    readImageBytes: async (path) => {
+      const file = await readImage(path)
+      if (!file) return null
+      return new Uint8Array(await file.arrayBuffer())
+    },
+    fs: {
+      writeText: async (relativePath, text) => {
+        const handle = await getFileHandleByPath(exportRoot, relativePath, true)
+        if (!handle) throw new Error(`无法写入 ${relativePath}`)
+        await writeTextFile(handle, text)
+      },
+      writeBinary: async (relativePath, data) => {
+        const handle = await getFileHandleByPath(exportRoot, relativePath, true)
+        if (!handle) throw new Error(`无法写入 ${relativePath}`)
+        await writeBinaryFile(handle, data)
+      },
+    },
+  })
 }

@@ -18,6 +18,26 @@ npm run dev
 
 浏览器要求：Chrome / Edge 等支持 File System Access API 的浏览器（Safari / Firefox 不支持 `showDirectoryPicker`）。
 
+## CLI（批处理）
+
+与网页共用 PSD 解析 / Prefab 导出核心，无需打开浏览器：
+
+```bash
+npm run cli -- --help
+
+# 导入 PSD → 项目/{名}/UI + {名}.json
+npm run cli -- import-psd --psd ./A.psd --project ./my-project [--name A] [--force]
+
+# 导出 Cocos Creator 3.8 Prefab 资源包
+npm run cli -- export-prefab --project ./my-project --ui A/A.json --out ./export [--force]
+
+# 校验 / 另存 UI JSON
+npm run cli -- validate-ui --ui ./my-project/A/A.json
+npm run cli -- export-ui --ui ./my-project/A/A.json --out ./A.copy.json
+```
+
+也可在本目录执行 `npx uieditor …`（`package.json` bin）。
+
 ## 使用说明
 
 1. **新建项目**：选择一个本地文件夹，自动初始化 `components.json`、`assets/` 目录和默认 `main.json` UI 文件。

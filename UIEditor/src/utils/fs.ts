@@ -20,10 +20,15 @@ export async function writeTextFile(handle: FileSystemFileHandle, text: string):
 
 export async function writeBinaryFile(
   handle: FileSystemFileHandle,
-  data: BufferSource | Blob,
+  data: BufferSource | Blob | Uint8Array,
 ): Promise<void> {
   const writable = await handle.createWritable()
-  await writable.write(data)
+  // Uint8Array 在部分 TS DOM 类型下与 BufferSource 不兼容，统一拷贝为 ArrayBuffer 视图
+  const payload =
+    data instanceof Uint8Array
+      ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
+      : data
+  await writable.write(payload as BufferSource | Blob)
   await writable.close()
 }
 

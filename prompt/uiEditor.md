@@ -9,6 +9,7 @@
 2. **状态管理**：Pinia（核心响应式数据源，负责全局事件流、防抖写盘与历史栈监听）。
 3. **UI 与基础控件**：Element Plus (或 Naive UI) + Tailwind CSS。必须利用其自带的 `el-tree`（支持拖拽的树组件）和 `el-collapse`（折叠面板）构建面板。外壳采用 Tailwind 实现暗黑系（Dark Mode）专业编辑器布局。
 4. **中间画布渲染**：PixiJS (2D 渲染引擎)。利用 PixiJS 嵌套的 `Container` 和 `Sprite` 概念天然对应 UI 的节点树，处理高帧率 2D 视图渲染、边界框选（Bounding Box）及元素鼠标拖拽。
+5. **CLI（命令行）**：凡不依赖画布交互 / 节点树拖拽 / Inspector 编辑的**批处理能力**，须同时提供 Node.js CLI，与网页端共用同一套核心逻辑（详见第七节）。
 
 # 二、 核心数据结构与约束机制
 
@@ -43,9 +44,18 @@
 # 三、 界面布局与核心功能要求
 
 ## 1. 顶部导航栏 (Top Bar)
-- **项目操作**：【新建项目】（初始化目录结构）、【导入项目】（调用 `showDirectoryPicker` 挂载本地文件夹并获取句柄）。
-- **UI文件操作**：【新建UI界面】（在项目下创建默认JSON）、【导入UI界面】、【导出UI界面】、【切换横竖屏】(默认横屏)、【设置分辨率】(默认1366x768)、【导入PSD】、【导出Cocos Creator3.x Prefab】。
-- **配置编辑**：点击【编辑组件库】按钮弹出 Modal 模态框，内置一个 Monaco Editor 或简易文本编辑器展示 `./components.json`。点击“保存”时，验证 JSON 合法性，直接写回本地文件并刷新 Pinia 状态中的组件预设。
+- **项目操作**：
+  - 【新建项目】：选择空目录并初始化项目结构（含默认 `components.json`、示例 UI 等）。
+  - 【导入项目】：调用 `showDirectoryPicker` 挂载本地文件夹；空目录可自动初始化。
+- **UI 文件与资源操作**（按钮须齐全；带 ✓CLI 的须有命令行等价能力，见第七节）：
+  - 【新建UI界面】：在项目下创建默认 JSON（含 Root）。
+  - 【导入UI界面】：从外部选择 `.json` 打开（可写入当前项目或仅编辑）。
+  - 【导出UI界面】：将当前 UI JSON 另存为文件。
+  - 【切换横竖屏】：默认横屏；切换时交换设计宽高并同步 Root。
+  - 【设置分辨率】：默认 `1366×768`；修改后同步 Root 宽高。
+  - 【导入PSD】✓CLI：选择 `.psd`，解析图层 PNG + 生成同名 JSON（第五节）。
+  - 【导出 Cocos Creator3.x Prefab】✓CLI：将当前（或指定）UI JSON 导出为 Creator 3.8 资源包（第六节）。
+- **配置编辑**：【编辑组件库】弹出 Modal，内置 Monaco 或简易编辑器展示 `./components.json`；保存时校验 JSON，写回本地并刷新 Pinia 组件预设。
 
 ## 2. 左侧控制面板 (Left Panel)
 - **左上方（节点树区）**：
@@ -92,7 +102,7 @@
 
 # 五、 PSD源文件导入与解析
 - **PSD解析**：基于 `ag-psd` 实现高性能解析工具，准确解析图层组与像素图层（导出各层 PNG、透明度、显隐、包围盒与层级）。
-- **PSD导入**：点击顶部【导入PSD】按钮选择 `.psd` 文件；解析图层为图片写入项目，并创建同名 JSON 界面。例如源文件名为 `A.psd`，目录结构为：
+- **PSD导入**：点击顶部【导入PSD】按钮选择 `.psd` 文件（CLI：`import-psd`，见第七节）；解析图层为图片写入项目，并创建同名 JSON 界面。例如源文件名为 `A.psd`，目录结构为：
   - `当前项目/A/UI/`：所有图层导出的 PNG 图片
   - `当前项目/A/A.json`：由图层树生成的 UI 界面
 - **根节点与分辨率**：导入后 Root 宽高 = PSD 文档宽高，并同步编辑器设计分辨率。
@@ -104,9 +114,9 @@
 # 六、 导出 Cocos Creator 3.x Prefab
 
 ## 1. 目标与入口
-- 顶部【导出 Cocos Creator3.x Prefab】：将**当前打开的 UI JSON**导出为可直接拖入 Creator 的资源包。
+- 顶部【导出 Cocos Creator3.x Prefab】：将**当前打开的 UI JSON**导出为可直接拖入 Creator 的资源包（CLI：`export-prefab`，见第七节；CLI 用 `--ui` 指定 JSON，不依赖「当前打开」）。
 - **目标引擎版本**：Cocos Creator **3.8.x**（Prefab / `.meta` 字段以该版本为准；若后续兼容其它小版本需单独声明）。
-- **导出位置**：通过目录选择器选择**独立导出目录**（不强制写回 UI 工程源目录），避免与编辑器用的 `framePath` 源文件混淆。
+- **导出位置**：网页端用目录选择器选**独立导出目录**；CLI 用 `--out`（均不强制写回 UI 工程源目录），避免与编辑器用的 `framePath` 源文件混淆。
 - 如界面为 `test.json`，导出目录结构为：
   - `{导出根}/test/UI/`：本 Prefab 用到的图片（及对应 `.meta`）
   - `{导出根}/test/test.prefab`：Cocos Prefab
@@ -145,3 +155,49 @@
 - 图层/节点名需做文件系统安全处理（非法字符替换）；同名图片冲突时保留路径区分或重命名并同步更新引用。
 - 验收清单：打开 Prefab 无红字 → 抽查带图节点 SpriteFrame 有效 → 抽查相对 Root 的位置（含 Y 翻转）→ 抽查 SLICED/TRIMMED 等枚举是否正确。
 - 可选（非必须）：根节点挂 `Widget` 全屏适配；同目录附带原 JSON 便于对照；图集（Atlas）打包。
+- **CLI**：须提供等价命令（见第七节），验收时 CLI 与网页导出结果在结构与引用上一致（UUID 可因实现而稳定同种子）。
+
+# 七、 CLI 命令行（非 UI 批处理）
+
+## 1. 目标与原则
+- **范围**：只覆盖不依赖编辑器交互的批处理；画布编辑、节点树拖拽、Inspector、撤销重做、组件库可视化编辑等**不进 CLI**。
+- **与网页共用核心**：PSD 解析、UI JSON 生成、Prefab / `.meta` 写出等须抽成**与浏览器 API 解耦**的纯逻辑（入参为路径 / Buffer / 虚拟 FS），网页端与 CLI 分别注入「读文件 / 写文件」实现，禁止两套算法分叉。
+- **运行环境**：Node.js（建议 ≥ 18）；通过 `package.json` scripts 或 `bin` 入口调用（如 `npx uieditor …` / `npm run cli -- …`）。
+- **退出码**：成功 `0`；参数错误 / 缺文件 / 解析失败等非 0，并向 stderr 输出可读错误。
+
+## 2. 必须提供的命令
+
+### 2.1 导入 PSD（对应顶部【导入PSD】）
+```text
+uieditor import-psd --psd <文件.psd> --project <项目根目录> [--name <界面名>]
+```
+- 行为与第五节一致：写入 `{项目}/{名}/UI/*.png` 与 `{项目}/{名}/{名}.json`。
+- `--name` 默认取 PSD 文件名（去扩展名）；非法字符按 `sanitizeFsName` 处理。
+- 若目标已存在：默认失败退出；可选 `--force` 覆盖。
+
+### 2.2 导出 Cocos Prefab（对应顶部【导出 Cocos Creator3.x Prefab】）
+```text
+uieditor export-prefab --project <项目根目录> --ui <相对或绝对.json> --out <导出根目录> [--force]
+```
+- 行为与第六节一致：读取指定 UI JSON 及其 `framePath` 图片，写出 `{out}/{界面名}/` 资源包。
+- 缺图、非法 JSON 须失败并列出路径。
+- `--force`：覆盖已存在的同名导出目录；无此参数时已存在则失败。
+
+### 2.3（建议一并提供）导出 / 校验 UI JSON
+```text
+uieditor export-ui --project <项目根> --ui <path.json> --out <目标.json>
+uieditor validate-ui --ui <path.json>   # 校验 Root / 基础字段 / 组件结构合法性
+```
+
+## 3. 明确不提供 CLI 的能力
+- 新建/导入项目的可视化挂载、画布横竖屏与分辨率对话框、节点增删改与拖拽、组件库 Modal 编辑、撤销重做等纯交互功能。
+
+## 4. 实现与目录建议
+- 核心库：如 `src/core/` 或 `src/utils/` 中与 DOM / Pinia 无关的模块（`psd` 解析、`cocosPrefab` 构建等）。
+- CLI 入口：如 `UIEditor/cli/` 或 `scripts/cli.ts`，使用 `fs/promises` + `path` 实现读写，复用上述核心。
+- 网页端继续用 File System Access API；**禁止**在 CLI 中依赖 `showDirectoryPicker` / `window`。
+
+## 5. 验收
+- 同一 PSD：CLI `import-psd` 与网页【导入PSD】生成的 JSON 树结构、坐标、图片集合一致（允许 `_id` 等运行时字段差异）。
+- 同一 UI JSON：CLI `export-prefab` 与网页【导出 Prefab】的目录结构、图片清单、Prefab 节点层级与 `y = -y` / 枚举映射一致。
+- `uieditor --help`（或等价）列出上述子命令与参数说明。

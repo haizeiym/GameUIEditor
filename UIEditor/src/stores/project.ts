@@ -237,7 +237,7 @@ export const useProjectStore = defineStore('project', () => {
       onProgress?.(`正在导出图片 (${i + 1}/${parsed.images.length}) ${img.fileName}`)
       const fh = await getFileHandleByPath(dirHandle.value, img.relativePath, true)
       if (!fh) throw new Error(`无法写入 ${img.relativePath}`)
-      await writeBinaryFile(fh, img.blob)
+      await writeBinaryFile(fh, img.bytes)
     }
 
     onProgress?.(`正在写入界面 ${parsed.jsonPath}`)

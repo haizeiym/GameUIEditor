@@ -7,4 +7,8 @@ export default defineConfig({
   server: {
     port: 5180,
   },
+  // pngjs 仅 Node CLI 使用；排除预构建，避免 util.inherits 进浏览器
+  optimizeDeps: {
+    exclude: ['pngjs', 'buffer'],
+  },
 })
