@@ -216,17 +216,28 @@ export const useProjectStore = defineStore('project', () => {
    */
   async function importPsd(
     file: File,
-    onProgress?: (msg: string) => void,
+    options?: {
+      onProgress?: (msg: string) => void
+      /** Root 设计分辨率；默认当前编辑器分辨率 / 1366×768 */
+      rootWidth?: number
+      rootHeight?: number
+    },
   ): Promise<{
     handle: FileSystemFileHandle
     path: string
     layerCount: number
     documentWidth: number
     documentHeight: number
+    rootWidth: number
+    rootHeight: number
   }> {
     if (!dirHandle.value) throw new Error('尚未打开项目')
+    const onProgress = options?.onProgress
     onProgress?.('正在解析 PSD 图层…')
-    const parsed = await parsePsdFile(file)
+    const parsed = await parsePsdFile(file, {
+      rootWidth: options?.rootWidth,
+      rootHeight: options?.rootHeight,
+    })
 
     onProgress?.(`正在创建目录 ${parsed.folderPath}/UI …`)
     await getDirectoryHandleByPath(dirHandle.value, parsed.uiFolderPath, true)
@@ -252,6 +263,8 @@ export const useProjectStore = defineStore('project', () => {
       layerCount: parsed.layerCount,
       documentWidth: parsed.documentWidth,
       documentHeight: parsed.documentHeight,
+      rootWidth: parsed.rootWidth,
+      rootHeight: parsed.rootHeight,
     }
   }
 

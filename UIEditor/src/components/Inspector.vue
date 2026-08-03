@@ -79,6 +79,7 @@ async function onDeleteNode() {
             size="small"
             class="w-1/2!"
             controls-position="right"
+            :disabled="editor.isRootSelected"
             @change="editor.commit()"
           />
           <el-input-number
@@ -86,6 +87,7 @@ async function onDeleteNode() {
             size="small"
             class="w-1/2!"
             controls-position="right"
+            :disabled="editor.isRootSelected"
             @change="editor.commit()"
           />
         </div>
@@ -95,19 +97,31 @@ async function onDeleteNode() {
             v-model="node.width"
             size="small"
             class="w-1/2!"
-            :min="0"
+            :min="1"
             controls-position="right"
+            :disabled="editor.isRootSelected"
+            :title="editor.isRootSelected ? 'Root 尺寸跟随设计分辨率（横竖屏切换 / 设置分辨率）' : undefined"
             @change="editor.commit()"
           />
           <el-input-number
             v-model="node.height"
             size="small"
             class="w-1/2!"
-            :min="0"
+            :min="1"
             controls-position="right"
+            :disabled="editor.isRootSelected"
+            :title="editor.isRootSelected ? 'Root 尺寸跟随设计分辨率（横竖屏切换 / 设置分辨率）' : undefined"
             @change="editor.commit()"
           />
         </div>
+        <p
+          v-if="editor.isRootSelected"
+          class="text-[11px] leading-snug text-zinc-500"
+        >
+          Root 尺寸 = 设计分辨率（{{ editor.resolutionLabel }}，{{
+            editor.orientation === 'landscape' ? '横屏' : '竖屏'
+          }}），请用顶部【设置分辨率】/【切换横竖屏】修改。
+        </p>
         <div class="flex items-center gap-2">
           <span class="w-14 shrink-0 text-zinc-400">zIndex</span>
           <el-input-number

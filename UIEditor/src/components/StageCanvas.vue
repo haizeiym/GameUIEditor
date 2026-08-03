@@ -471,10 +471,14 @@ function updateSelectionOutline() {
     .lineTo(corners[0].x, corners[0].y)
     .stroke({ color: 0x38bdf8, width: 1.5 })
 
-  handlesLayer.visible = true
-  // 手柄顺序：左上、右上、左下、右下
-  const handlePos = [corners[0], corners[1], corners[2], corners[3]]
-  handles.forEach((h, i) => h.position.set(handlePos[i].x, handlePos[i].y))
+  // Root 不显示缩放手柄（尺寸 = 设计分辨率）
+  const isRoot = id === editor.rootId
+  handlesLayer.visible = !isRoot
+  if (!isRoot) {
+    // 手柄顺序：左上、右上、左下、右下
+    const handlePos = [corners[0], corners[1], corners[2], corners[3]]
+    handles.forEach((h, i) => h.position.set(handlePos[i].x, handlePos[i].y))
+  }
 }
 
 // ---------- 交互 ----------
@@ -506,6 +510,8 @@ let lastFilePath = ''
 function onHandlePointerDown(e: FederatedPointerEvent, corner: number) {
   if (e.button !== 0) return
   const id = editor.selectedId
+  // Root 尺寸锁定为设计分辨率，禁止四角缩放
+  if (id && id === editor.rootId) return
   const c = id ? idMap.get(id) : null
   const node = findNodeById(editor.currentUIData as UINode | null, id)
   if (!id || !c || !c.parent || !node) return

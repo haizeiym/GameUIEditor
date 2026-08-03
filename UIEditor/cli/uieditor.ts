@@ -34,6 +34,8 @@ function printHelp(): void {
     --psd <path>         PSD 文件（必填）
     --project <dir>      项目根目录（必填）
     --name <name>        界面/目录名（默认取 PSD 文件名）
+    --width <n>          Root 宽（设计分辨率，默认 1366）
+    --height <n>         Root 高（设计分辨率，默认 768）
     --force              覆盖已存在的同名目录
 
   export-prefab:
@@ -133,11 +135,17 @@ async function cmdImportPsd(flags: Flags): Promise<void> {
   if (!(await pathExists(absProject))) throw new Error(`项目目录不存在：${absProject}`)
 
   const nameOpt = flagString(flags, 'name')
+  const widthOpt = flagString(flags, 'width')
+  const heightOpt = flagString(flags, 'height')
   const buf = await readFile(absPsd)
   const parsed = await parsePsdBuffer(
     buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
     path.basename(absPsd),
-    nameOpt,
+    {
+      baseNameOverride: nameOpt,
+      rootWidth: widthOpt ? Number(widthOpt) : undefined,
+      rootHeight: heightOpt ? Number(heightOpt) : undefined,
+    },
   )
 
   const packDir = path.join(absProject, parsed.folderPath)
@@ -158,7 +166,7 @@ async function cmdImportPsd(flags: Flags): Promise<void> {
   await writeFile(jsonOut, parsed.jsonContent, 'utf8')
 
   console.log(
-    `PSD 导入完成：${parsed.jsonPath}（${parsed.layerCount} 张图，${parsed.documentWidth}×${parsed.documentHeight}）`,
+    `PSD 导入完成：${parsed.jsonPath}（${parsed.layerCount} 张图，PSD ${parsed.documentWidth}×${parsed.documentHeight}，Root ${parsed.rootWidth}×${parsed.rootHeight}）`,
   )
 }
 

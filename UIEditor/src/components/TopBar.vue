@@ -72,6 +72,7 @@ async function onNewUIFile() {
       cancelButtonText: '取消',
     })
     const path = `${value}.json`
+    // Root 尺寸 = 当前设计分辨率（横屏或竖屏）
     const handle = await project.createProjectFile(
       path,
       serializeForDisk(createDefaultUIData(editor.canvasWidth, editor.canvasHeight)),
@@ -147,13 +148,16 @@ async function onImportPsd() {
       showClose: false,
     })
     try {
-      const result = await project.importPsd(file)
+      // Root = 当前设计分辨率（横/竖屏默认），不用 PSD 文档尺寸
+      const result = await project.importPsd(file, {
+        rootWidth: editor.canvasWidth,
+        rootHeight: editor.canvasHeight,
+      })
       loading.close()
       await editor.loadUIFile(result.handle, result.path)
-      // 根节点尺寸 = 分辨率尺寸（PSD 文档宽高）
-      editor.setResolution(result.documentWidth, result.documentHeight)
+      editor.setResolution(result.rootWidth, result.rootHeight)
       ElMessage.success(
-        `PSD 导入完成：${result.path}（${result.layerCount} 个图层图片，分辨率 ${result.documentWidth}×${result.documentHeight}）`,
+        `PSD 导入完成：${result.path}（${result.layerCount} 个图层，PSD ${result.documentWidth}×${result.documentHeight}，Root ${result.rootWidth}×${result.rootHeight}）`,
       )
     } catch (err) {
       loading.close()

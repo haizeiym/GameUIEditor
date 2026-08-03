@@ -34,10 +34,25 @@ export interface PsdImportResult {
   jsonPath: string
   jsonContent: string
   images: ParsedPsdLayerImage[]
+  /** PSD 文档像素尺寸（图层坐标仍按此中心换算） */
   documentWidth: number
   documentHeight: number
+  /** 写入 Root 的设计分辨率（默认横屏 1366×768，不随 PSD 文档变化） */
+  rootWidth: number
+  rootHeight: number
   layerCount: number
 }
+
+export interface ParsePsdOptions {
+  /** 覆盖界面/目录名 */
+  baseNameOverride?: string
+  /** Root 宽高 = 设计分辨率；默认 1366×768，不使用 PSD 文档尺寸 */
+  rootWidth?: number
+  rootHeight?: number
+}
+
+const DEFAULT_ROOT_WIDTH = 1366
+const DEFAULT_ROOT_HEIGHT = 768
 
 const hasDomCanvas = typeof document !== 'undefined'
 
@@ -164,23 +179,25 @@ function unionFromChildren(kids: UINode[]) {
 
 /**
  * 解析 PSD 二进制：导出各图层 PNG，构建 UI JSON。
- * @param buffer PSD 文件内容
- * @param sourceName 源文件名或界面名（用于目录名；可含 .psd）
- * @param baseNameOverride 若提供则覆盖从 sourceName 推导的目录名
+ * Root 使用设计分辨率（默认 1366×768），图层坐标仍相对 PSD 文档中心 (0,0)。
  */
 export async function parsePsdBuffer(
   buffer: ArrayBuffer,
   sourceName: string,
-  baseNameOverride?: string,
+  options?: string | ParsePsdOptions,
 ): Promise<PsdImportResult> {
+  const opts: ParsePsdOptions =
+    typeof options === 'string' ? { baseNameOverride: options } : (options ?? {})
   const baseName = sanitizeFsName(
-    baseNameOverride?.trim() || sourceName.replace(/\.psd$/i, ''),
+    opts.baseNameOverride?.trim() || sourceName.replace(/\.psd$/i, ''),
   )
   // 浏览器用 canvas；Node 用 imageData（无 DOM）
   const psd = hasDomCanvas ? readPsd(buffer) : readPsd(buffer, { useImageData: true })
 
   const docW = Math.max(1, psd.width)
   const docH = Math.max(1, psd.height)
+  const rootW = Math.max(1, Math.round(opts.rootWidth ?? DEFAULT_ROOT_WIDTH))
+  const rootH = Math.max(1, Math.round(opts.rootHeight ?? DEFAULT_ROOT_HEIGHT))
 
   const images: ParsedPsdLayerImage[] = []
   const usedNames = new Set<string>()
@@ -274,8 +291,8 @@ export async function parsePsdBuffer(
   }
 
   const root = createNode('Root')
-  root.width = docW
-  root.height = docH
+  root.width = rootW
+  root.height = rootH
   root.x = 0
   root.y = 0
   root.children = await convertChildren(psd.children ?? [])
@@ -289,6 +306,8 @@ export async function parsePsdBuffer(
     images,
     documentWidth: docW,
     documentHeight: docH,
+    rootWidth: rootW,
+    rootHeight: rootH,
     layerCount,
   }
 }
@@ -298,7 +317,7 @@ export async function parsePsdBuffer(
  */
 export async function parsePsdFile(
   file: File,
-  baseNameOverride?: string,
+  options?: string | ParsePsdOptions,
 ): Promise<PsdImportResult> {
-  return parsePsdBuffer(await file.arrayBuffer(), file.name, baseNameOverride)
+  return parsePsdBuffer(await file.arrayBuffer(), file.name, options)
 }

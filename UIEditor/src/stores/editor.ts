@@ -58,45 +58,58 @@ export const useEditorStore = defineStore('editor', () => {
   const canRedo = computed(() => future.value.length > 0)
   const resolutionLabel = computed(() => `${canvasWidth.value}×${canvasHeight.value}`)
 
-  function syncResolutionFromRoot(root: UINode) {
-    canvasWidth.value = root.width
-    canvasHeight.value = root.height
-    orientation.value = root.width >= root.height ? 'landscape' : 'portrait'
+  function syncOrientation(width: number, height: number) {
+    orientation.value = width >= height ? 'landscape' : 'portrait'
   }
 
-  /** 将设计分辨率应用到根节点宽高（坐标原点仍为画布中心） */
+  /**
+   * 用根节点宽高同步设计分辨率（打开文件时）。
+   * Root 尺寸即设计分辨率；并强制 Root 锚在 (0,0)。
+   */
+  function syncResolutionFromRoot(root: UINode) {
+    const w = Math.max(1, Math.round(root.width) || DEFAULT_WIDTH)
+    const h = Math.max(1, Math.round(root.height) || DEFAULT_HEIGHT)
+    root.width = w
+    root.height = h
+    root.x = 0
+    root.y = 0
+    canvasWidth.value = w
+    canvasHeight.value = h
+    syncOrientation(w, h)
+  }
+
+  /**
+   * 将设计分辨率写回 Root（横竖屏切换 / 设置分辨率）。
+   * Root 宽高始终等于当前设计分辨率，坐标固定 (0,0)。
+   */
   function applyResolutionToRoot(width: number, height: number, pushHistory = true) {
+    const w = Math.max(1, Math.round(width))
+    const h = Math.max(1, Math.round(height))
+    canvasWidth.value = w
+    canvasHeight.value = h
+    syncOrientation(w, h)
+
     const root = currentUIData.value
-    if (!root) {
-      canvasWidth.value = width
-      canvasHeight.value = height
-      orientation.value = width >= height ? 'landscape' : 'portrait'
-      return
-    }
-    if (root.width === width && root.height === height) {
-      canvasWidth.value = width
-      canvasHeight.value = height
-      orientation.value = width >= height ? 'landscape' : 'portrait'
-      return
-    }
-    root.width = width
-    root.height = height
-    canvasWidth.value = width
-    canvasHeight.value = height
-    orientation.value = width >= height ? 'landscape' : 'portrait'
+    if (!root) return
+    if (root.width === w && root.height === h && root.x === 0 && root.y === 0) return
+    root.width = w
+    root.height = h
+    root.x = 0
+    root.y = 0
     if (pushHistory) commit()
   }
 
   function toggleOrientation() {
-    const w = canvasHeight.value
-    const h = canvasWidth.value
-    applyResolutionToRoot(w, h, true)
+    applyResolutionToRoot(canvasHeight.value, canvasWidth.value, true)
   }
 
   function setResolution(width: number, height: number) {
-    const w = Math.max(1, Math.round(width))
-    const h = Math.max(1, Math.round(height))
-    applyResolutionToRoot(w, h, true)
+    applyResolutionToRoot(width, height, true)
+  }
+
+  /** 确保当前 Root 与设计分辨率一致（加载后 / 异常漂移时纠偏） */
+  function ensureRootMatchesResolution(pushHistory = false) {
+    applyResolutionToRoot(canvasWidth.value, canvasHeight.value, pushHistory)
   }
 
   function snapshot(): string {
@@ -160,6 +173,8 @@ export const useEditorStore = defineStore('editor', () => {
     if (!findNodeById(currentUIData.value, selectedId.value)) {
       selectedId.value = currentUIData.value._id
     }
+    // 撤销/重做分辨率或横竖屏后，画布框与 Root 保持一致
+    if (currentUIData.value) syncResolutionFromRoot(currentUIData.value)
     await nextTick()
     suppressWatch = false
     scheduleSave()
@@ -201,6 +216,8 @@ export const useEditorStore = defineStore('editor', () => {
     currentFilePath.value = path
     selectedId.value = data._id
     syncResolutionFromRoot(data)
+    // Root 尺寸 = 设计分辨率（横竖屏均如此）
+    ensureRootMatchesResolution(false)
     past.value = []
     future.value = []
     lastCommitted = snapshot()
@@ -345,6 +362,7 @@ export const useEditorStore = defineStore('editor', () => {
     resolutionLabel,
     toggleOrientation,
     setResolution,
+    ensureRootMatchesResolution,
     commit,
     undo,
     redo,
