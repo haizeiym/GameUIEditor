@@ -4,18 +4,55 @@ import type { ElTree } from 'element-plus'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { UINode } from '../types'
 import { useEditorStore } from '../stores/editor'
+import { collectNodeIds, pruneExpandedKeys } from '../utils/nodeTreeExpand'
 
 const editor = useEditorStore()
 const treeRef = ref<InstanceType<typeof ElTree>>()
 
 const treeData = computed<UINode[]>(() => (editor.currentUIData ? [editor.currentUIData] : []))
 
-// store 选中态 → 树高亮（画布点选、撤销恢复时同步）
+const expandedKeys = ref<string[]>([])
+
+/** 打开 / 切换 UI：默认全展开 */
+watch(
+  () => editor.rootId,
+  (id) => {
+    const root = editor.currentUIData
+    expandedKeys.value = id && root ? collectNodeIds(root) : []
+  },
+  { immediate: true },
+)
+
+/** 同 UI 内增删节点：只剪掉失效 key，不因新建而加入父 id */
+watch(
+  () => editor.currentUIData,
+  (root) => {
+    if (!root) {
+      expandedKeys.value = []
+      return
+    }
+    if (root._id !== editor.rootId) return
+    expandedKeys.value = pruneExpandedKeys(expandedKeys.value, root)
+  },
+  { deep: true },
+)
+
+function onNodeExpand(data: UINode) {
+  if (!expandedKeys.value.includes(data._id)) {
+    expandedKeys.value = [...expandedKeys.value, data._id]
+  }
+}
+
+function onNodeCollapse(data: UINode) {
+  expandedKeys.value = expandedKeys.value.filter((k) => k !== data._id)
+}
+
+// store 选中态 → 树高亮；第二参 false = 不自动展开父链
 watch(
   () => [editor.selectedId, editor.currentUIData] as const,
   async () => {
     await nextTick()
-    if (editor.selectedId) treeRef.value?.setCurrentKey(editor.selectedId)
+    if (editor.selectedId) treeRef.value?.setCurrentKey(editor.selectedId, false)
   },
   { immediate: true },
 )
@@ -88,7 +125,8 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         class="panel-tree"
         :data="treeData"
         node-key="_id"
-        default-expand-all
+        :default-expanded-keys="expandedKeys"
+        :auto-expand-parent="false"
         highlight-current
         :expand-on-click-node="false"
         draggable
@@ -96,6 +134,8 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         :allow-drop="allowDrop"
         @node-click="onNodeClick"
         @node-drop="onNodeDrop"
+        @node-expand="onNodeExpand"
+        @node-collapse="onNodeCollapse"
         @node-contextmenu="onContextMenu"
       >
         <template #default="{ data }">
