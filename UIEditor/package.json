@@ -12,7 +12,8 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build && npm run build:cli",
+    "build": "vue-tsc -b && vite build && node scripts/write-dist-root.mjs && npm run build:cli",
+    "build:web": "vue-tsc -b && vite build && node scripts/write-dist-root.mjs",
     "build:cli": "tsup",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",

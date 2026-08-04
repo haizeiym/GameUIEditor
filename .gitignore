@@ -1,3 +1,5 @@
 /UIEditor/node_modules
 /UIEditor/dist
 /UIEditor/dist-cli
+/UIEditor/tsconfig.tsbuildinfo
+/.DS_Store
