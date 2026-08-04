@@ -19,14 +19,19 @@
 
 折叠父节点下新建时：树上可能看不到当前高亮，属预期；选中态仍有效。
 
+## Root cause
+
+`editor.commit()` 用 `JSON.parse` **替换**整棵 `currentUIData`。`el-tree` 对 `data` 深监听后会 `setData` 重建节点；配合 `default-expand-all`，每次新建/删除都会把整树重新展开。另外 `setCurrentKey(id)` 默认 `shouldAutoExpandParent=true`，会展开到新选中节点。
+
 ## Implementation sketch
 
 1. 移除 `el-tree` 的 `default-expand-all`。
-2. 增加 `expandedKeys: ref<string[]>`，绑定 `:expanded-keys`（Element Plus 受控展开）。
-3. 辅助：`collectNodeIds(root)` 深度优先收集全部 `_id`。
-4. `watch` 根 `_id`（或 UI 文件切换信号）：`expandedKeys = collectNodeIds(root)`。
-5. `@node-expand` / `@node-collapse`：按节点 `_id` 更新数组。
-6. 删除后（或 watch 树结构）：过滤掉不在树中的 keys。
+2. 维护 `expandedKeys: ref<string[]>`，绑定 `:default-expanded-keys`（Element Plus **无**真正受控 `expanded-keys`；重建后靠 default keys 恢复展开态）。
+3. `:auto-expand-parent="false"`；选中同步改为 `setCurrentKey(id, false)`，避免强制展开父链。
+4. 辅助：`collectNodeIds(root)` / `pruneExpandedKeys(keys, root)`。
+5. `watch` 根 `_id` 变化：`expandedKeys = collectNodeIds(root)`（打开/切换 UI 默认全展开）。
+6. `@node-expand` / `@node-collapse`：按节点 `_id` 增删 keys。
+7. 树数据变化（非根切换）时：`expandedKeys = pruneExpandedKeys(...)`，**不**因新建子节点往 keys 里塞父 id。
 
 ## Non-goals
 
