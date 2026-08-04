@@ -10,6 +10,7 @@ import {
   writeTextFile,
 } from './fs'
 import { sanitizeFsName } from './fsName'
+import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
 
 const UI_2D_LAYER = 1073741824
 const TEXTURE_SUB = '6c48a'
@@ -42,6 +43,8 @@ export interface CocosPrefabExportCoreOptions {
   /** 按项目相对路径读取图片字节 */
   readImageBytes: (path: string) => Promise<Uint8Array | null>
   fs: PrefabWriteFs
+  /** 可选：覆盖 codePreview/cocosPrefab.md 模板原文（CLI 从磁盘注入） */
+  scriptTemplateMd?: string
 }
 
 export interface CocosPrefabExportOptions {
@@ -116,6 +119,28 @@ export function stableUuid(seed: string): string {
   const b12 = ((parseInt(hex.slice(12, 16), 16) & 0x0fff) | 0x5000).toString(16).padStart(4, '0')
   const b16 = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${b12}-${b16}${hex.slice(18, 20)}-${hex.slice(20, 32)}`
+}
+
+const COCOS_BASE64 =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+/**
+ * Creator 非 min 压缩 UUID（23 字符）：保留前 5 位 hex，其余每 3 hex → 2 base64。
+ * Prefab 内自定义脚本组件的 `__type__` 使用该值（对应 `.ts.meta` 的 uuid）。
+ */
+export function compressUuid(uuid: string): string {
+  const hex = uuid.replace(/-/g, '').toLowerCase()
+  if (hex.length !== 32 || !/^[0-9a-f]{32}$/.test(hex)) {
+    throw new Error(`非法 UUID，无法压缩：${uuid}`)
+  }
+  const reserved = hex.slice(0, 5)
+  const rest = hex.slice(5)
+  let out = reserved
+  for (let i = 0; i < rest.length; i += 3) {
+    const v = parseInt(rest.slice(i, i + 3), 16)
+    out += COCOS_BASE64[(v >> 6) & 63]! + COCOS_BASE64[v & 63]!
+  }
+  return out
 }
 
 function fnv1aHex(input: string): string {
@@ -411,13 +436,15 @@ function colorObj(c: { r: number; g: number; b: number; a: number }) {
   return { __type__: 'cc.Color', r: c.r, g: c.g, b: c.b, a: c.a }
 }
 
-/** 构建标准 Creator 3.8 Prefab JSON 数组 */
+/** 构建标准 Creator 3.8 Prefab JSON 数组；scriptUuid 非空时挂到根节点 */
 export function buildPrefabObjects(
   root: UINode,
   framePathToSpriteUuid: Map<string, string>,
   prefabName: string,
+  scriptUuid?: string,
 ): PrefabObject[] {
   const objects: PrefabObject[] = []
+  const scriptType = scriptUuid ? compressUuid(scriptUuid) : null
 
   objects.push({
     __type__: 'cc.Prefab',
@@ -585,6 +612,23 @@ export function buildPrefabObjects(
       compIds.push(opacityId)
     }
 
+    // 根节点挂载配套 .ts 脚本（__type__ = 压缩后的 typescript UUID）
+    if (parentId === null && scriptType) {
+      const scriptId = objects.length
+      objects.push({
+        __type__: scriptType,
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: scriptId + 1 },
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(scriptId)
+    }
+
     const prefabInfoId = objects.length
     objects.push({
       __type__: 'cc.PrefabInfo',
@@ -631,7 +675,7 @@ export async function pathExists(
 
 /**
  * IO 无关的 Prefab 导出核心：写出
- * `{baseName}/UI/*` + `{baseName}/{baseName}.prefab` + 各级 .meta
+ * `{baseName}/UI/*` + `{baseName}/{baseName}.prefab` + `{baseName}.ts` + 各级 .meta
  */
 export async function exportCocosPrefabCore(
   options: CocosPrefabExportCoreOptions,
@@ -644,6 +688,8 @@ export async function exportCocosPrefabCore(
   const pathToExportName = new Map<string, string>()
   const pathToUuid = new Map<string, string>()
   const pathToBytes = new Map<string, Uint8Array>()
+  /** 与 `.ts.meta` / Prefab 根脚本组件共用 */
+  const scriptUuid = stableUuid(`cocos-ts:${baseName}`)
 
   for (const path of framePaths) {
     const bytes = await readImageBytes(path)
@@ -684,7 +730,7 @@ export async function exportCocosPrefabCore(
     )
   }
 
-  const prefabObjects = buildPrefabObjects(root, pathToUuid, baseName)
+  const prefabObjects = buildPrefabObjects(root, pathToUuid, baseName, scriptUuid)
   await fs.writeText(
     `${baseName}/${baseName}.prefab`,
     `${JSON.stringify(prefabObjects, null, 2)}\n`,
@@ -692,6 +738,14 @@ export async function exportCocosPrefabCore(
   await fs.writeText(
     `${baseName}/${baseName}.prefab.meta`,
     `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName), null, 2)}\n`,
+  )
+
+  // 旁路脚本：codePreview/cocosPrefab.md，FileName → 界面名；Prefab 根已引用同 UUID
+  const scriptSource = buildPrefabScriptSource(baseName, options.scriptTemplateMd)
+  await fs.writeText(`${baseName}/${baseName}.ts`, scriptSource)
+  await fs.writeText(
+    `${baseName}/${baseName}.ts.meta`,
+    `${JSON.stringify(buildTypescriptMeta(scriptUuid), null, 2)}\n`,
   )
 
   return {

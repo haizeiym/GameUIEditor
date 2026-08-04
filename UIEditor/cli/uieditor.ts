@@ -195,9 +195,27 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
   }
   await mkdir(path.join(packDir, 'UI'), { recursive: true })
 
+  // 优先读仓库 codePreview/cocosPrefab.md
+  let scriptTemplateMd: string | undefined
+  const mdCandidates = [
+    path.join(process.cwd(), 'codePreview', 'cocosPrefab.md'),
+    path.join(process.cwd(), '..', 'codePreview', 'cocosPrefab.md'),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../codePreview/cocosPrefab.md'),
+  ]
+  for (const mdPath of mdCandidates) {
+    try {
+      scriptTemplateMd = await readFile(mdPath, 'utf8')
+      if (scriptTemplateMd.includes('FileName')) break
+      scriptTemplateMd = undefined
+    } catch {
+      /* try next */
+    }
+  }
+
   const result = await exportCocosPrefabCore({
     baseName,
     root,
+    scriptTemplateMd,
     readImageBytes: async (rel) => {
       const full = path.join(absProject, rel)
       try {
@@ -221,7 +239,9 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
     },
   })
 
-  console.log(`Prefab 导出完成：${path.join(absOut, result.prefabPath)}（${result.imageCount} 张图片）`)
+  console.log(
+    `Prefab 导出完成：${path.join(absOut, result.prefabPath)}（${result.imageCount} 张图片，含 ${baseName}.ts）`,
+  )
 }
 
 async function cmdExportUi(flags: Flags): Promise<void> {

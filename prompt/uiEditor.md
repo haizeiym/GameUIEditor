@@ -120,9 +120,15 @@
 - **导出位置**：网页端用目录选择器选**独立导出目录**；CLI 用 `--out`（均不强制写回 UI 工程源目录），避免与编辑器用的 `framePath` 源文件混淆。
 - 如界面为 `test.json`，导出目录结构为：
   - `{导出根}/test/UI/`：本 Prefab 用到的图片（及对应 `.meta`）
-  - `{导出根}/test/test.prefab`：Cocos Prefab
-  - `{导出根}/test/test.prefab.meta`：Prefab 的 meta
+  - `{导出根}/test/test.prefab` + `test.prefab.meta`：Cocos Prefab 及 meta
+  - `{导出根}/test/test.ts` + `test.ts.meta`：配套脚本（见下）及 typescript meta
   - 各层文件夹均需生成目录 `.meta`
+- **配套脚本（模板）**：
+  - 模板来源：仓库 `codePreview/cocosPrefab.md` 中的 `ts` 代码块。
+  - 将模板内全部占位符 `FileName` 替换为界面名（与 json 同名，经文件名安全处理后的合法标识符，例：`test.json` → `test`）。
+  - 写出 `{导出根}/{名}/{名}.ts`，并生成同路径 `{名}.ts.meta`（`importer: typescript`，稳定 UUID）。
+  - **绑定到 Prefab**：上述 UUID 经 Creator 非 min `compressUuid`（23 字符）后，作为自定义组件挂到 **Prefab 根节点**（`__type__` = 压缩 UUID，并带 `cc.CompPrefabInfo`）；子节点不挂此脚本。`.ts.meta` 与 Prefab 内引用须为同一 UUID。
+  - 网页导出与 CLI `export-prefab` 均须生成；CLI 优先读磁盘上的 md，否则使用内置兜底模板。
 
 ## 2. 资源与引用（UUID，非路径字符串）
 - **只打包**当前 JSON 中所有 `SpriteComponent.framePath` **实际引用到**的图片；缺图时导出失败并提示缺失路径。
@@ -154,7 +160,8 @@
 
 ## 5. Prefab 结构要求
 - 输出标准 Creator 3.8 Prefab JSON 数组：含 `cc.Prefab`、各 `cc.Node`、组件、`cc.PrefabInfo` / `cc.CompPrefabInfo` 等必要对象，`__id__` 引用正确。
-- 导出包拷贝进任意空 Creator 3.8 工程的 `assets` 后：无缺失引用报错，可直接在编辑器中打开 Prefab，层级、位置、贴图、Sprite 类型与尺寸模式与编辑器预览一致。
+- 根节点组件顺序：`UITransform` →（可选 Sprite/Label/Opacity）→ **配套脚本** → `PrefabInfo`；脚本 `__type__` 为 `.ts.meta` uuid 的压缩形式，不得写成类名字符串。
+- 导出包拷贝进任意空 Creator 3.8 工程的 `assets` 后：无缺失引用报错，可直接在编辑器中打开 Prefab，层级、位置、贴图、Sprite 类型与尺寸模式与编辑器预览一致，且根节点已挂载同名脚本组件。
 
 ## 6. 边界与验收
 - 图层/节点名需做文件系统安全处理（非法字符替换）；同名图片冲突时保留路径区分或重命名并同步更新引用。
