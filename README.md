@@ -2,7 +2,6 @@
 
 轻量级纯网页端 UI 编辑工具：基于 File System Access API（`showDirectoryPicker()`）直接读写本地项目文件夹，无需任何服务端。
 
-
 ## 技术栈
 
 - **Vue 3** (Composition API) + **Vite** + **TypeScript**
