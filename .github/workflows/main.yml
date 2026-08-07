@@ -1,0 +1,27 @@
+name: Sync to GitLab
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to self-hosted GitLab
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git remote add gitlab http://oauth2:${{ secrets.GITLAB_TOKEN }}@git.fish333.com/game/gameuieditor.git
+          
+          # 先尝试拉取远程变更
+          git fetch gitlab || true
+          
+          # 使用 force-with-lease 安全地推送
+          git push gitlab --all --force-with-lease || git push gitlab --all --force
+          git push gitlab --tags --force-with-lease || git push gitlab --tags --force
