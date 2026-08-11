@@ -400,14 +400,8 @@ interface HitCandidate {
   siblingIndex: number
 }
 
-/**
- * 收集指针下所有命中节点，再决定选中谁：
- * 1) 若节点树当前选中项仍在命中集合中 → 保持该选中（相交区域不跳到祖先/兄弟）
- * 2) 否则：depth 更深优先（如 Root→A→B→C→D 且均命中 → D>C>B>A）
- * 3) 同深度：面积更小优先；再同：同级 children 下标更大优先
- * 禁止点嵌套子节点时误选 Root（Root 仅在无其它命中时可选）。
- */
-function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | null {
+/** 收集指针下所有命中节点（含深度 / 面积 / 同级下标） */
+function collectHits(root: UINode, stageX: number, stageY: number): HitCandidate[] {
   const hits: HitCandidate[] = []
   const walk = (node: UINode, depth: number, siblingIndex: number) => {
     const c = idMap.get(node._id)
@@ -427,7 +421,26 @@ function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | nu
     }
   }
   walk(root, 0, 0)
+  return hits
+}
 
+/** nodeId 是否为 ancestorId 子树内的严格后代（不含自身） */
+function isStrictDescendant(root: UINode, ancestorId: string, nodeId: string): boolean {
+  if (ancestorId === nodeId) return false
+  const anc = findNodeById(root, ancestorId)
+  if (!anc) return false
+  return findNodeById(anc, nodeId) !== null
+}
+
+/**
+ * 收集指针下所有命中节点，再决定选中谁：
+ * 1) 若节点树当前选中项仍在命中集合中 → 保持该选中（相交区域不跳到祖先/兄弟）
+ * 2) 否则：depth 更深优先（如 Root→A→B→C→D 且均命中 → D>C>B>A）
+ * 3) 同深度：面积更小优先；再同：同级 children 下标更大优先
+ * 禁止点嵌套子节点时误选 Root（Root 仅在无其它命中时可选）。
+ */
+function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | null {
+  const hits = collectHits(root, stageX, stageY)
   if (!hits.length) return null
 
   // 当前树选中仍命中 → 粘滞选中（D 与 B 相交时，已选 D 则继续选 D）
@@ -443,6 +456,29 @@ function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | nu
     return b.siblingIndex - a.siblingIndex
   })
   return hits[0]!.node
+}
+
+/**
+ * 双击下钻：在当前选中节点的严格后代命中中，取「浅一层」优先
+ *（已选 D 且子树为 E→F→G：双击 → E，再双击 → F，再双击 → G）。
+ */
+function pickDrillChild(
+  root: UINode,
+  stageX: number,
+  stageY: number,
+  selectedId: string,
+): UINode | null {
+  const hits = collectHits(root, stageX, stageY)
+  const descendants = hits.filter((h) => isStrictDescendant(root, selectedId, h.node._id))
+  if (!descendants.length) return null
+
+  descendants.sort((a, b) => {
+    // 浅层优先：每次只下钻一层
+    if (a.depth !== b.depth) return a.depth - b.depth
+    if (a.area !== b.area) return a.area - b.area
+    return b.siblingIndex - a.siblingIndex
+  })
+  return descendants[0]!.node
 }
 
 // ---------- 选中高亮框（仅自身尺寸，不含子节点包围盒） ----------
@@ -718,6 +754,32 @@ function onStagePointerUp(e?: FederatedPointerEvent) {
   }
 }
 
+/**
+ * 双击下钻：当前已选中任意节点时，在命中点下选中其子树中更浅一层的节点。
+ * 连续双击则继续向下（D→E→F→G…）。无可用子节点时保持当前选中。
+ */
+function onCanvasDblClick(e: MouseEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+
+  // 双击第二下可能已启动未移动的拖拽，取消之
+  if (dragging && !dragging.moved) dragging = null
+  if (panning) panning = null
+
+  const root = editor.currentUIData as UINode | null
+  const selectedId = editor.selectedId
+  if (!root || !selectedId || selectedId === editor.rootId) return
+
+  const stage = clientToStage(e.clientX, e.clientY)
+  // 当前选中必须仍在点击处命中，才允许下钻（避免空白处误钻）
+  const hits = collectHits(root, stage.x, stage.y)
+  if (!hits.some((h) => h.node._id === selectedId)) return
+
+  const child = pickDrillChild(root, stage.x, stage.y, selectedId)
+  if (!child || child._id === root._id) return
+  editor.selectedId = child._id
+}
+
 function onWheel(e: WheelEvent) {
   if (!world || !wrapEl.value) return
   e.preventDefault()
@@ -787,6 +849,7 @@ onMounted(async () => {
   setCanvasCursor('grab')
 
   wrapEl.value.addEventListener('wheel', onWheel, { passive: false })
+  wrapEl.value.addEventListener('dblclick', onCanvasDblClick)
 
   // 视口尺寸变化时，把设计画布与十字准星重新置于正中央
   resizeObserver = new ResizeObserver(() => {
@@ -805,6 +868,7 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
   wrapEl.value?.removeEventListener('wheel', onWheel)
+  wrapEl.value?.removeEventListener('dblclick', onCanvasDblClick)
   app?.destroy(true, { children: true, texture: true })
   app = null
   world = null
