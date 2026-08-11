@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useExportProgress } from '../composables/useExportProgress'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
 import { createDefaultUIData, serializeForDisk } from '../utils/node'
 import ComponentLibDialog from './ComponentLibDialog.vue'
+import ExportProgressDialog from './ExportProgressDialog.vue'
 
 const project = useProjectStore()
 const editor = useEditorStore()
+const {
+  visible: exportProgressVisible,
+  title: exportProgressTitle,
+  message: exportProgressMessage,
+  percent: exportProgressPercent,
+  current: exportProgressCurrent,
+  total: exportProgressTotal,
+  runWithProgress,
+} = useExportProgress()
 const libDialogVisible = ref(false)
 const resolutionDialogVisible = ref(false)
 const draftWidth = ref(1366)
@@ -178,17 +189,19 @@ async function onExportCocosPrefab() {
     return
   }
   try {
-    const result = await editor.exportCocosCreatorPrefab(async (baseName) => {
-      try {
-        await ElMessageBox.confirm(
-          `导出目录下已存在「${baseName}/」，是否覆盖？`,
-          '覆盖确认',
-          { confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning' },
-        )
-        return true
-      } catch {
-        return false
-      }
+    const result = await runWithProgress('cocos', async (onProgress) => {
+      return editor.exportCocosCreatorPrefab(async (baseName) => {
+        try {
+          await ElMessageBox.confirm(
+            `导出目录下已存在「${baseName}/」，是否覆盖？`,
+            '覆盖确认',
+            { confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning' },
+          )
+          return true
+        } catch {
+          return false
+        }
+      }, onProgress)
     })
     if (!result) {
       ElMessage.info('已取消导出')
@@ -267,6 +280,15 @@ async function onExportCocosPrefab() {
     </div>
 
     <ComponentLibDialog v-model="libDialogVisible" />
+
+    <ExportProgressDialog
+      v-model="exportProgressVisible"
+      :title="exportProgressTitle"
+      :message="exportProgressMessage"
+      :percent="exportProgressPercent"
+      :current="exportProgressCurrent"
+      :total="exportProgressTotal"
+    />
 
     <el-dialog v-model="resolutionDialogVisible" title="设置分辨率" width="360px">
       <div class="flex flex-col gap-3">

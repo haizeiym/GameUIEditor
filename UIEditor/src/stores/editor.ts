@@ -2,12 +2,14 @@ import { defineStore } from 'pinia'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { Orientation, UINode } from '../types'
 import { exportCocosPrefab, pathExists } from '../utils/cocosPrefab'
+import type { OnExportProgress } from '../utils/exportProgress'
 import { readTextFile, writeTextFile } from '../utils/fs'
 import {
   canAddComponent,
   cloneWithNewIds,
   createComponentData,
   createNode,
+  ensureSimpleListHierarchy,
   findNodeById,
   findParentById,
   normalizeUIData,
@@ -249,9 +251,11 @@ export const useEditorStore = defineStore('editor', () => {
   /**
    * 导出当前 UI 为 Cocos Creator 3.8 Prefab 资源包。
    * @param confirmOverwrite 目标目录已存在时询问是否覆盖；返回 false 则取消
+   * @param onProgress 可选进度回调（进度框 / 日志；与引擎解耦）
    */
   async function exportCocosCreatorPrefab(
     confirmOverwrite?: (baseName: string) => Promise<boolean>,
+    onProgress?: OnExportProgress,
   ) {
     if (!currentUIData.value) throw new Error('当前没有打开的 UI 界面')
     if (!project.dirHandle) throw new Error('请先新建或导入项目（导出需读取项目内图片）')
@@ -275,6 +279,7 @@ export const useEditorStore = defineStore('editor', () => {
       root: currentUIData.value,
       readImage: (path) => project.getFileByPath(path),
       componentDefs: project.componentDefs,
+      onProgress,
     })
   }
 
@@ -336,6 +341,9 @@ export const useEditorStore = defineStore('editor', () => {
     const def = project.componentDefs[type]
     if (!node || !def || !canAddComponent(node, type, project.componentDefs)) return
     node.components[type] = createComponentData(def)
+    if (type === 'SimpleListComponent') {
+      ensureSimpleListHierarchy(node)
+    }
     commit()
   }
 

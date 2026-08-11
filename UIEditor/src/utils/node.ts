@@ -9,6 +9,9 @@ export {
   createDefaultUIData,
   createNode,
   defaultValueForProp,
+  ensureSimpleListHierarchy,
+  findDescendantByName,
+  findDescendantByPath,
   findNodeById,
   findParentById,
   genId,
@@ -115,6 +118,11 @@ const FALLBACK_COMPONENTS_JSON = `{
         "type": "boolean",
         "default": true,
         "displayName": "垂直方向"
+      },
+      "viewNode": {
+        "type": "string",
+        "default": "",
+        "displayName": "视图节点"
       },
       "itemCreationMode": {
         "type": "enum",

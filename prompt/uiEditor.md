@@ -95,7 +95,7 @@ interface UINode {
 ## 2.3 组件互斥
 - `components.json` 每项可含 `componentType?: number`。
 - 规则：同名组件只能挂一个；若定义了 `componentType`，则**同 `componentType` 也只能挂一个**。
-- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`。
+- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`。
 
 ## 2.4 默认 `components.json`（新建项目必须写入；规格以本块为准）
 
@@ -212,7 +212,7 @@ trim；若结果为空 → "untitled"
 - 【切换横竖屏】：默认横屏；交换设计宽高并同步 Root。
 - 【设置分辨率】：默认 `1366×768`；同步 Root。
 - 【导入PSD】✓CLI（第五节）。
-- 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）。
+- 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）；网页导出时弹出**通用进度框**（与引擎解耦，见 §6.7）。
 - 【编辑组件库】：Modal（Monaco 或 textarea）编辑 `components.json`；保存校验 JSON → 写盘 → 刷新 Pinia 预设。
 
 ## 3.2 左侧
@@ -245,6 +245,7 @@ trim；若结果为空 → "untitled"
 - `el-collapse`：标题左类型、右删组件。
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
+- `SimpleListComponent.scriptPath`：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
 
 ## 3.5 底部资源管理器
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
@@ -336,8 +337,9 @@ y = top  + height/2 - docH/2
 - `SpriteComponent` → `cc.Sprite`：`_spriteFrame` / `_color` / `_type` / `_sizeMode`；`_isTrimmedMode = (sizeMode !== RAW)`。
 - `LabelComponent` → `cc.Label`：`text` → `_string`；以及 color、fontSize、lineHeight、fontFamily、enableWrapText、isBold、对齐 / overflow / cacheMode；`_isSystemFontUsed: true`。
 - `OpacityComponent` → `cc.UIOpacity`：编辑器侧按 `0–1`（兼容误写 `0–255`）转为引擎 0–255。
+- `SimpleListComponent` → 同节点先挂 `cc.ScrollView`（`horizontal`/`vertical` 取自属性），再按 `scriptUuid`（可由 `scriptPath` 对应 `.meta` 自动填充）绑定自定义脚本；`ScrollView._content` 指向 `viewNode`（默认 `view/content`）。添加组件时自动创建子节点 `view` → `content`。导出时名为 `view` 的子节点自动挂 `cc.Mask`。
 - 无上述组件则仅 Node + UITransform。
-- 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
+- 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
 - 子节点顺序 = JSON `children` 原序。
 
 ## 6.4 枚举数值（导出时转换）
@@ -348,16 +350,30 @@ y = top  + height/2 - docH/2
 | Label 水平/垂直对齐 | LEFT/TOP=0, CENTER=1, RIGHT/BOTTOM=2（缺省 CENTER） |
 | overflow | NONE=0, CLAMP=1, SHRINK=2, RESIZE_HEIGHT=3 |
 | cacheMode | NONE=0, BITMAP=1, CHAR=2（缺省 BITMAP） |
+| SimpleList.itemCreationMode | NODE=0, PREFAB=1（缺省 PREFAB） |
 
 FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
 ## 6.5 配套脚本
-- 读 `codePreview/cocosPrefab.md` 的 `ts` 块，全部 `FileName` → 安全界面名（如 `test`）。
+- 读取 `codePreview/cocosPrefab.md` 的 `ts` 块，全部 `FileName` → 安全界面名（如 `test`）。
 - 网页与 CLI 均须生成；CLI 优先读磁盘 md，否则内置兜底同一模板。
 
 ## 6.6 验收
 - 拷入空 Creator 3.8 工程 `assets`：无缺失引用；可打开 Prefab；层级/位置（含 Y 翻转）/贴图/枚举与编辑器一致；根已挂同名脚本。
 - 覆盖：目标已存在时网页确认 / CLI 无 `--force` 则失败。
+
+## 6.7 导出进度（通用，与引擎解耦）
+- **目的**：网页导出 Prefab 时展示进度；后续 Unity 等引擎导出复用同一套 UI / 事件，禁止把进度框写死在 Cocos 导出里。
+- **事件形状**（`ExportProgressEvent`，纯数据，无 Vue / Element Plus）：
+  - `engine`：目标引擎 id（如 `"cocos"`；新增引擎扩展 `EXPORT_ENGINE_LABELS`）
+  - `phase`：阶段 key（`prepare` / `read-images` / `write-images` / `write-prefab` / `write-script` / `done`）
+  - `message`：用户可见文案
+  - `current` / `total`：线性步进（`percent = round(current/total*100)`）
+- **分层**：
+  1. 核心导出（`exportCocosPrefabCore` 等）只接收可选 `onProgress?: (e) => void`，每步报告并 `yield` 主线程。
+  2. `useExportProgress` + `ExportProgressDialog`：通用进度框；默认**首条进度再弹出**（先选目录 / 确认覆盖）。
+  3. 顶栏入口：`runWithProgress('cocos', …)`；未来其它引擎改为 `runWithProgress('unity', …)` 即可。
+- CLI：可不传 `onProgress`，或接到 stderr 日志；不弹 UI。
 
 ---
 
@@ -396,8 +412,9 @@ uieditor --help
 2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
 4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。
-5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在。
+5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
+7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 
 ---
 

@@ -4,6 +4,10 @@
  */
 import type { ComponentDef, ComponentDefs, UINode } from '../types'
 import {
+  createExportProgressReporter,
+  type OnExportProgress,
+} from './exportProgress'
+import {
   getDirectoryHandleByPath,
   getFileHandleByPath,
   writeBinaryFile,
@@ -11,7 +15,7 @@ import {
 } from './fs'
 import { sanitizeFsName } from './fsName'
 import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
-import { resolveScriptBindField } from './uiNode'
+import { findDescendantByPath, resolveScriptBindField } from './uiNode'
 
 const UI_2D_LAYER = 1073741824
 const TEXTURE_SUB = '6c48a'
@@ -48,6 +52,8 @@ export interface CocosPrefabExportCoreOptions {
   scriptTemplateMd?: string
   /** 组件库定义（SimpleList 等需 scriptName/Path/Uuid 才能绑定脚本） */
   componentDefs?: ComponentDefs
+  /** 导出进度（与 UI 解耦；网页进度框 / CLI 日志均可接入） */
+  onProgress?: OnExportProgress
 }
 
 export interface CocosPrefabExportOptions {
@@ -57,6 +63,7 @@ export interface CocosPrefabExportOptions {
   /** 按项目相对路径读取图片 */
   readImage: (path: string) => Promise<File | null>
   componentDefs?: ComponentDefs
+  onProgress?: OnExportProgress
 }
 
 type PrefabObject = Record<string, unknown>
@@ -497,6 +504,8 @@ export function buildPrefabObjects(
   const objects: PrefabObject[] = []
   const scriptType = scriptUuid ? compressUuid(scriptUuid) : null
   const defs = componentDefs ?? {}
+  /** UINode._id → Prefab 中 cc.Node 的 __id__ */
+  const uiIdToPrefabId = new Map<string, number>()
 
   objects.push({
     __type__: 'cc.Prefab',
@@ -509,7 +518,7 @@ export function buildPrefabObjects(
     persistent: false,
   })
 
-  const emitNode = (node: UINode, parentId: number | null): number => {
+  const emitNode = (node: UINode, parentId: number | null, parentUI: UINode | null): number => {
     const nodeId = objects.length
     const nodeObj: PrefabObject = {
       __type__: 'cc.Node',
@@ -530,10 +539,11 @@ export function buildPrefabObjects(
       _id: '',
     }
     objects.push(nodeObj)
+    uiIdToPrefabId.set(node._id, nodeId)
 
     const childIds: number[] = []
     for (const child of node.children) {
-      childIds.push(emitNode(child, nodeId))
+      childIds.push(emitNode(child, nodeId, node))
     }
     nodeObj._children = childIds.map((id) => ({ __id__: id }))
 
@@ -555,6 +565,30 @@ export function buildPrefabObjects(
     })
     objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
     compIds.push(uitId)
+
+    // SimpleList 的 view 节点：自动挂 Mask（矩形裁剪）
+    if (
+      node.name === 'view' &&
+      parentUI?.components['SimpleListComponent']
+    ) {
+      const maskId = objects.length
+      objects.push({
+        __type__: 'cc.Mask',
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: maskId + 1 },
+        _type: 0,
+        _inverted: false,
+        _segments: 64,
+        _alphaThreshold: 0.1,
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(maskId)
+    }
 
     const sprite = node.components['SpriteComponent']
     if (sprite) {
@@ -667,6 +701,14 @@ export function buildPrefabObjects(
     // SimpleList：先挂 ScrollView（Horizontal/Vertical），再按 components.json 绑定脚本
     const simpleList = node.components['SimpleListComponent']
     if (simpleList) {
+      // viewNode → content；缺省回退 view/content
+      const viewNodeRef =
+        typeof simpleList.viewNode === 'string' && simpleList.viewNode.trim()
+          ? simpleList.viewNode.trim()
+          : 'view/content'
+      const contentUI = findDescendantByPath(node, viewNodeRef)
+      const contentPrefabId = contentUI ? uiIdToPrefabId.get(contentUI._id) : undefined
+
       const scrollId = objects.length
       objects.push({
         __type__: 'cc.ScrollView',
@@ -684,7 +726,7 @@ export function buildPrefabObjects(
         vertical: simpleList.Vertical === true,
         cancelInnerEvents: true,
         scrollEvents: [],
-        _content: null,
+        _content: contentPrefabId != null ? { __id__: contentPrefabId } : null,
         _horizontalScrollBar: null,
         _verticalScrollBar: null,
         _id: '',
@@ -757,7 +799,7 @@ export function buildPrefabObjects(
     return nodeId
   }
 
-  emitNode(root, null)
+  emitNode(root, null, null)
   return objects
 }
 
@@ -803,7 +845,16 @@ export async function exportCocosPrefabCore(
   /** 与 `.ts.meta` / Prefab 根脚本组件共用 */
   const scriptUuid = stableUuid(`cocos-ts:${baseName}`)
 
-  for (const path of framePaths) {
+  const imageN = framePaths.length
+  // prepare + 读图 N + 写目录 + 写图 N + prefab + script + done
+  const totalSteps = 1 + imageN + 1 + imageN + 1 + 1 + 1
+  const report = createExportProgressReporter('cocos', totalSteps, options.onProgress)
+
+  await report('prepare', `准备导出「${baseName}」…`)
+
+  for (let i = 0; i < framePaths.length; i++) {
+    const path = framePaths[i]!
+    await report('read-images', `读取图片（${i + 1}/${imageN}）：${path}`)
     const bytes = await readImageBytes(path)
     if (!bytes) {
       missing.push(path)
@@ -818,6 +869,7 @@ export async function exportCocosPrefabCore(
     throw new Error(`缺少图片资源：\n${missing.join('\n')}`)
   }
 
+  await report('write-images', '写入目录元数据…')
   await fs.writeText(
     `${baseName}.meta`,
     `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}`)), null, 2)}\n`,
@@ -827,7 +879,8 @@ export async function exportCocosPrefabCore(
     `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`)), null, 2)}\n`,
   )
 
-  for (const path of framePaths) {
+  for (let i = 0; i < framePaths.length; i++) {
+    const path = framePaths[i]!
     const bytes = pathToBytes.get(path)!
     const exportName = pathToExportName.get(path)!
     const uuid = pathToUuid.get(path)!
@@ -835,6 +888,7 @@ export async function exportCocosPrefabCore(
     const displayName = exportName.replace(/\.[^.]+$/, '')
     const fileExt = extForMeta(exportName)
 
+    await report('write-images', `写出图片（${i + 1}/${imageN}）：${exportName}`)
     await fs.writeBinary(`${baseName}/UI/${exportName}`, bytes)
     await fs.writeText(
       `${baseName}/UI/${exportName}.meta`,
@@ -842,6 +896,7 @@ export async function exportCocosPrefabCore(
     )
   }
 
+  await report('write-prefab', `生成 Prefab：${baseName}.prefab`)
   const prefabObjects = buildPrefabObjects(
     root,
     pathToUuid,
@@ -858,6 +913,7 @@ export async function exportCocosPrefabCore(
     `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName), null, 2)}\n`,
   )
 
+  await report('write-script', `写出配套脚本：${baseName}.ts`)
   // 旁路脚本：codePreview/cocosPrefab.md，FileName → 界面名；Prefab 根已引用同 UUID
   const scriptSource = buildPrefabScriptSource(baseName, options.scriptTemplateMd)
   await fs.writeText(`${baseName}/${baseName}.ts`, scriptSource)
@@ -865,6 +921,8 @@ export async function exportCocosPrefabCore(
     `${baseName}/${baseName}.ts.meta`,
     `${JSON.stringify(buildTypescriptMeta(scriptUuid), null, 2)}\n`,
   )
+
+  await report('done', '导出完成')
 
   return {
     baseName,
@@ -891,6 +949,7 @@ export async function exportCocosPrefab(
     baseName,
     root,
     componentDefs: options.componentDefs,
+    onProgress: options.onProgress,
     readImageBytes: async (path) => {
       const file = await readImage(path)
       if (!file) return null

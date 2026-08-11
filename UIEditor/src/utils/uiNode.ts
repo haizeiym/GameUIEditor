@@ -187,6 +187,62 @@ export function createComponentData(def: ComponentDef): Record<string, unknown> 
   return data
 }
 
+/** 根据相对路径（如 view/content）或节点名在子树中查找 */
+export function findDescendantByPath(root: UINode, pathOrName: string): UINode | null {
+  const raw = pathOrName.trim()
+  if (!raw) return null
+  const parts = raw.split('/').filter(Boolean)
+  if (parts.length === 0) return null
+
+  let cur: UINode = root
+  for (const part of parts) {
+    const next = cur.children.find((c) => c.name === part)
+    if (!next) {
+      // 单段名称：在整棵子树中按名查找
+      if (parts.length === 1) return findDescendantByName(root, part)
+      return null
+    }
+    cur = next
+  }
+  return cur
+}
+
+export function findDescendantByName(root: UINode, name: string): UINode | null {
+  for (const child of root.children) {
+    if (child.name === name) return child
+    const found = findDescendantByName(child, name)
+    if (found) return found
+  }
+  return null
+}
+
+/**
+ * 为挂载 SimpleListComponent 的节点确保 view → content 层级，
+ * 并将 content 路径写入 viewNode（相对列表根：view/content）。
+ */
+export function ensureSimpleListHierarchy(listNode: UINode): void {
+  const comp = listNode.components['SimpleListComponent']
+  if (!comp) return
+
+  let view = listNode.children.find((c) => c.name === 'view')
+  if (!view) {
+    view = createNode('view', listNode.children.length)
+    view.width = listNode.width || 100
+    view.height = listNode.height || 100
+    listNode.children.push(view)
+  }
+
+  let content = view.children.find((c) => c.name === 'content')
+  if (!content) {
+    content = createNode('content', view.children.length)
+    content.width = listNode.width || 100
+    content.height = listNode.height || 100
+    view.children.push(content)
+  }
+
+  comp.viewNode = 'view/content'
+}
+
 /** 解析组件定义上的脚本绑定字段（纯字符串或 PropDef.default） */
 export function resolveScriptBindField(field: ScriptBindField | undefined): string {
   if (typeof field === 'string') return field.trim()
