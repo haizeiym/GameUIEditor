@@ -124,12 +124,52 @@ export const useProjectStore = defineStore('project', () => {
     return defs
   }
 
+  /** 项目旧 components.json 缺内置组件/属性时补齐；并去掉已废弃字段 */
+  function mergeMissingBuiltinDefs(defs: ComponentDefs): ComponentDefs {
+    const builtins = parseComponentDefs(DEFAULT_COMPONENTS_JSON)
+    const merged: ComponentDefs = { ...defs }
+    for (const [name, def] of Object.entries(builtins)) {
+      if (!merged[name]) {
+        merged[name] = def
+        continue
+      }
+      const cur = merged[name]!
+      const curProps: Record<string, (typeof def.properties)[string]> = {
+        ...(cur.properties ?? {}),
+      }
+      let changed = false
+      for (const [pk, pv] of Object.entries(def.properties ?? {})) {
+        if (!curProps[pk]) {
+          curProps[pk] = pv
+          changed = true
+        }
+      }
+      if (name === 'SimpleListComponent') {
+        for (const drop of ['itemPrefab', 'itemNode', 'isSetUUID'] as const) {
+          if (drop in curProps) {
+            delete curProps[drop]
+            changed = true
+          }
+        }
+        const vertical = curProps.Vertical
+        if (vertical && vertical.default !== true) {
+          curProps.Vertical = { ...vertical, default: true }
+          changed = true
+        }
+      }
+      if (changed) {
+        merged[name] = { ...cur, properties: curProps }
+      }
+    }
+    return merged
+  }
+
   async function loadComponentDefs() {
     if (!dirHandle.value) return
     try {
       const handle = await dirHandle.value.getFileHandle('components.json')
       const text = await readTextFile(handle)
-      const parsed = normalizeSpriteEnumDefs(parseComponentDefs(text))
+      const parsed = mergeMissingBuiltinDefs(normalizeSpriteEnumDefs(parseComponentDefs(text)))
       componentDefs.value = parsed
       componentDefsText.value = JSON.stringify(parsed, null, 2) + '\n'
     } catch {

@@ -38,6 +38,12 @@ export interface PropDef {
   options?: EnumOption[]
 }
 
+/**
+ * 组件级脚本绑定配置：可为纯字符串，或带 default 的 PropDef 形态（仅取 default）。
+ * 导出 Prefab 时用于挂载自定义脚本（__type__ = 压缩 UUID）。
+ */
+export type ScriptBindField = string | PropDef
+
 export interface ComponentDef {
   properties: Record<string, PropDef>
   /** 可选前缀（新建节点命名等） */
@@ -47,6 +53,12 @@ export interface ComponentDef {
    * 未声明时仅按组件名去重。
    */
   componentType?: number
+  /** 导出时绑定的脚本类名（@ccclass） */
+  scriptName?: ScriptBindField
+  /** 导出时绑定的脚本资源路径（db:// 或相对路径，作 UUID 种子兜底） */
+  scriptPath?: ScriptBindField
+  /** 导出时绑定的脚本 UUID（优先于 path 种子；与 .ts.meta 一致） */
+  scriptUuid?: ScriptBindField
 }
 
 /** components.json 的整体结构 */

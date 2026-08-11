@@ -2,7 +2,7 @@
  * 将编辑器 UI JSON 导出为 Cocos Creator 3.8.x Prefab 资源包
  *（含图片、目录/资源 .meta、Prefab 内 SpriteFrame UUID 引用）。
  */
-import type { UINode } from '../types'
+import type { ComponentDef, ComponentDefs, UINode } from '../types'
 import {
   getDirectoryHandleByPath,
   getFileHandleByPath,
@@ -11,6 +11,7 @@ import {
 } from './fs'
 import { sanitizeFsName } from './fsName'
 import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
+import { resolveScriptBindField } from './uiNode'
 
 const UI_2D_LAYER = 1073741824
 const TEXTURE_SUB = '6c48a'
@@ -45,6 +46,8 @@ export interface CocosPrefabExportCoreOptions {
   fs: PrefabWriteFs
   /** 可选：覆盖 codePreview/cocosPrefab.md 模板原文（CLI 从磁盘注入） */
   scriptTemplateMd?: string
+  /** 组件库定义（SimpleList 等需 scriptName/Path/Uuid 才能绑定脚本） */
+  componentDefs?: ComponentDefs
 }
 
 export interface CocosPrefabExportOptions {
@@ -53,6 +56,7 @@ export interface CocosPrefabExportOptions {
   root: UINode
   /** 按项目相对路径读取图片 */
   readImage: (path: string) => Promise<File | null>
+  componentDefs?: ComponentDefs
 }
 
 type PrefabObject = Record<string, unknown>
@@ -111,6 +115,52 @@ function resolveCacheMode(v: unknown): number {
   }
   if (typeof v === 'number' && v >= 0 && v <= 2) return v
   return LabelCacheMode.BITMAP
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** SimpleList.itemCreationMode：编辑器存字符串，Prefab 存枚举数值 */
+function resolveItemCreationMode(v: unknown): number {
+  if (typeof v === 'number' && (v === 0 || v === 1)) return v
+  if (typeof v === 'string') {
+    const key = v.toUpperCase()
+    if (key === 'NODE') return 0
+    if (key === 'PREFAB') return 1
+  }
+  return 1
+}
+
+/**
+ * 解析脚本绑定 UUID。
+ * 优先级：实例 scriptUuid > 定义 scriptUuid > path 若本身是 UUID > path 稳定种子。
+ * 导出要求必须能解析出 UUID，否则返回 null。
+ */
+export function resolveSimpleListScriptUuid(
+  instance: Record<string, unknown> | undefined,
+  def: ComponentDef | undefined,
+): string | null {
+  const fromInstance =
+    typeof instance?.scriptUuid === 'string' ? instance.scriptUuid.trim() : ''
+  if (fromInstance && UUID_RE.test(fromInstance)) return fromInstance.toLowerCase()
+
+  if (def) {
+    const explicit = resolveScriptBindField(def.scriptUuid)
+    if (explicit && UUID_RE.test(explicit)) return explicit.toLowerCase()
+  }
+
+  const pathFromInstance =
+    typeof instance?.scriptPath === 'string' ? instance.scriptPath.trim() : ''
+  const pathFromDef = def ? resolveScriptBindField(def.scriptPath) : ''
+  const scriptPath = pathFromInstance || pathFromDef
+  if (!scriptPath) return null
+  if (UUID_RE.test(scriptPath)) return scriptPath.toLowerCase()
+  return null
+}
+
+/** @deprecated 使用 resolveSimpleListScriptUuid */
+export function resolveComponentScriptUuid(def: ComponentDef | undefined): string | null {
+  return resolveSimpleListScriptUuid(undefined, def)
 }
 
 /** 由字符串种子生成稳定 UUID（同路径多次导出保持不变） */
@@ -442,9 +492,11 @@ export function buildPrefabObjects(
   framePathToSpriteUuid: Map<string, string>,
   prefabName: string,
   scriptUuid?: string,
+  componentDefs?: ComponentDefs,
 ): PrefabObject[] {
   const objects: PrefabObject[] = []
   const scriptType = scriptUuid ? compressUuid(scriptUuid) : null
+  const defs = componentDefs ?? {}
 
   objects.push({
     __type__: 'cc.Prefab',
@@ -612,6 +664,66 @@ export function buildPrefabObjects(
       compIds.push(opacityId)
     }
 
+    // SimpleList：先挂 ScrollView（Horizontal/Vertical），再按 components.json 绑定脚本
+    const simpleList = node.components['SimpleListComponent']
+    if (simpleList) {
+      const scrollId = objects.length
+      objects.push({
+        __type__: 'cc.ScrollView',
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: scrollId + 1 },
+        bounceDuration: 0.23,
+        brake: 0.75,
+        elastic: true,
+        inertia: true,
+        horizontal: simpleList.Horizontal === true,
+        vertical: simpleList.Vertical === true,
+        cancelInnerEvents: true,
+        scrollEvents: [],
+        _content: null,
+        _horizontalScrollBar: null,
+        _verticalScrollBar: null,
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(scrollId)
+
+      const listDef = defs['SimpleListComponent']
+      const listScriptUuid = resolveSimpleListScriptUuid(simpleList, listDef)
+      if (listScriptUuid) {
+        const listScriptType = compressUuid(listScriptUuid)
+        const listId = objects.length
+        objects.push({
+          __type__: listScriptType,
+          _name: '',
+          _objFlags: 0,
+          __editorExtras__: {},
+          node: { __id__: nodeId },
+          _enabled: true,
+          __prefab: { __id__: listId + 1 },
+          scrollView: { __id__: scrollId },
+          itemCreationMode: resolveItemCreationMode(simpleList.itemCreationMode),
+          itemPrefab: null,
+          itemNode: null,
+          spacing: typeof simpleList.spacing === 'number' ? simpleList.spacing : 0,
+          paddingStart: typeof simpleList.paddingStart === 'number' ? simpleList.paddingStart : 0,
+          paddingEnd: typeof simpleList.paddingEnd === 'number' ? simpleList.paddingEnd : 0,
+          isPageMode: simpleList.isPageMode === true,
+          _id: '',
+        })
+        objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+        compIds.push(listId)
+      } else {
+        console.warn(
+          '[cocosPrefab] SimpleListComponent 缺少 scriptUuid（请设置 scriptPath 以从 .meta 自动填充），已跳过脚本绑定',
+        )
+      }
+    }
+
     // 根节点挂载配套 .ts 脚本（__type__ = 压缩后的 typescript UUID）
     if (parentId === null && scriptType) {
       const scriptId = objects.length
@@ -730,7 +842,13 @@ export async function exportCocosPrefabCore(
     )
   }
 
-  const prefabObjects = buildPrefabObjects(root, pathToUuid, baseName, scriptUuid)
+  const prefabObjects = buildPrefabObjects(
+    root,
+    pathToUuid,
+    baseName,
+    scriptUuid,
+    options.componentDefs,
+  )
   await fs.writeText(
     `${baseName}/${baseName}.prefab`,
     `${JSON.stringify(prefabObjects, null, 2)}\n`,
@@ -772,6 +890,7 @@ export async function exportCocosPrefab(
   return exportCocosPrefabCore({
     baseName,
     root,
+    componentDefs: options.componentDefs,
     readImageBytes: async (path) => {
       const file = await readImage(path)
       if (!file) return null

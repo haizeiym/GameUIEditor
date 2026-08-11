@@ -1,7 +1,14 @@
 /**
  * 与浏览器 / Vite 解耦的节点树核心（CLI 可安全 import）。
  */
-import type { ComponentDef, ComponentDefs, PropDef, UINode, Vec2 } from '../types'
+import type {
+  ComponentDef,
+  ComponentDefs,
+  PropDef,
+  ScriptBindField,
+  UINode,
+  Vec2,
+} from '../types'
 
 let idCounter = 0
 
@@ -178,6 +185,15 @@ export function createComponentData(def: ComponentDef): Record<string, unknown> 
     data[key] = defaultValueForProp(propDef)
   }
   return data
+}
+
+/** 解析组件定义上的脚本绑定字段（纯字符串或 PropDef.default） */
+export function resolveScriptBindField(field: ScriptBindField | undefined): string {
+  if (typeof field === 'string') return field.trim()
+  if (field && typeof field === 'object' && typeof field.default === 'string') {
+    return field.default.trim()
+  }
+  return ''
 }
 
 /** 校验 components.json 文本合法性，返回解析结果或抛出错误信息 */

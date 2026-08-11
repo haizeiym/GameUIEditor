@@ -13,7 +13,7 @@ import path from 'node:path'
 import { exportCocosPrefabCore } from '../src/utils/cocosPrefab'
 import { sanitizeFsName } from '../src/utils/fsName'
 import { parsePsdBuffer } from '../src/utils/psd'
-import { normalizeUIData, serializeForDisk } from '../src/utils/uiNode'
+import { normalizeUIData, parseComponentDefs, serializeForDisk } from '../src/utils/uiNode'
 
 type Flags = Record<string, string | boolean>
 
@@ -212,10 +212,32 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
     }
   }
 
+  // 项目 components.json（SimpleList 脚本绑定等）；缺失则尝试仓库内置 config
+  let componentDefs
+  const compsCandidates = [
+    path.join(absProject, 'components.json'),
+    path.join(process.cwd(), 'config', 'components.json'),
+    path.join(process.cwd(), 'UIEditor', 'config', 'components.json'),
+    path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      '../config/components.json',
+    ),
+  ]
+  for (const compsPath of compsCandidates) {
+    try {
+      const text = await readFile(compsPath, 'utf8')
+      componentDefs = parseComponentDefs(text)
+      break
+    } catch {
+      /* try next */
+    }
+  }
+
   const result = await exportCocosPrefabCore({
     baseName,
     root,
     scriptTemplateMd,
+    componentDefs,
     readImageBytes: async (rel) => {
       const full = path.join(absProject, rel)
       try {

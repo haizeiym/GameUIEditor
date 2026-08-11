@@ -15,6 +15,7 @@ export {
   normalizeUIData,
   parseComponentDefs,
   parseVec2,
+  resolveScriptBindField,
   serializeForDisk,
 } from './uiNode'
 
@@ -102,6 +103,43 @@ const FALLBACK_COMPONENTS_JSON = `{
       }
     },
     "componentType": 1
+  },
+  "SimpleListComponent": {
+    "properties": {
+      "Horizontal": {
+        "type": "boolean",
+        "default": false,
+        "displayName": "水平方向"
+      },
+      "Vertical": {
+        "type": "boolean",
+        "default": true,
+        "displayName": "垂直方向"
+      },
+      "itemCreationMode": {
+        "type": "enum",
+        "default": "PREFAB",
+        "options": [
+          { "label": "NODE", "value": "NODE" },
+          { "label": "PREFAB", "value": "PREFAB" }
+        ]
+      },
+      "spacing": { "type": "number", "default": 0, "displayName": "Item 间距" },
+      "paddingStart": { "type": "number", "default": 0, "displayName": "顶部/左侧边距" },
+      "paddingEnd": { "type": "number", "default": 0, "displayName": "底部/右侧边距" },
+      "isPageMode": { "type": "boolean", "default": false, "displayName": "Page 模式" },
+      "scriptPath": {
+        "type": "string",
+        "default": "",
+        "displayName": "脚本路径"
+      },
+      "scriptUuid": {
+        "type": "string",
+        "default": "",
+        "displayName": "脚本UUID"
+      }
+    },
+    "componentType": 3
   }
 }
 `

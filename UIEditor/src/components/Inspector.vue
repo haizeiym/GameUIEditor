@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
 import { canAddComponent } from '../utils/node'
+import {
+  resolveScriptMetaUuid,
+  scriptPathFromDrop,
+  toastScriptMetaError,
+} from '../utils/scriptMeta'
 import PropField from './PropField.vue'
 
 const editor = useEditorStore()
@@ -48,6 +53,61 @@ async function onDeleteNode() {
   } catch {
     /* 用户取消 */
   }
+}
+
+function dropTargetFor(type: string, propName: string): 'image' | 'script' | false {
+  if (type === 'SpriteComponent' && propName === 'framePath') return 'image'
+  if (type === 'SimpleListComponent' && propName === 'scriptPath') return 'script'
+  return false
+}
+
+/** 校验脚本路径，成功则写入 scriptPath + scriptUuid */
+async function applyScriptPath(type: string, rawPath: string) {
+  if (!node.value) return
+  const comp = node.value.components[type]
+  if (!comp) return
+  const prevPath = typeof comp.scriptPath === 'string' ? comp.scriptPath : ''
+  const result = await resolveScriptMetaUuid(rawPath, project.dirHandle)
+  if (!result.ok || !result.uuid) {
+    toastScriptMetaError(result.error || '脚本路径无效')
+    comp.scriptPath = prevPath
+    return
+  }
+  comp.scriptPath = result.scriptPath
+  comp.scriptUuid = result.uuid
+  ElMessage.success(`已从 .meta 读取 UUID：${result.uuid}`)
+  editor.commit()
+}
+
+async function onScriptPathCommit(type: string) {
+  if (!node.value) return
+  const comp = node.value.components[type]
+  if (!comp) return
+  const path = typeof comp.scriptPath === 'string' ? comp.scriptPath.trim() : ''
+  if (!path) {
+    comp.scriptUuid = ''
+    editor.commit()
+    return
+  }
+  await applyScriptPath(type, path)
+}
+
+async function onScriptDrop(type: string, e: DragEvent) {
+  e.preventDefault()
+  const dropped = await scriptPathFromDrop(e)
+  if (!dropped.ok) {
+    toastScriptMetaError(dropped.error || '拖入无效')
+    return
+  }
+  await applyScriptPath(type, dropped.scriptPath)
+}
+
+function onPropCommit(type: string, propName: string) {
+  if (type === 'SimpleListComponent' && propName === 'scriptPath') {
+    void onScriptPathCommit(type)
+    return
+  }
+  editor.commit()
 }
 </script>
 
@@ -197,8 +257,9 @@ async function onDeleteNode() {
                     <PropField
                       v-model="node.components[type][propName]"
                       :def="propDef"
-                      :drop-target="type === 'SpriteComponent' && String(propName) === 'framePath'"
-                      @commit="editor.commit()"
+                      :drop-target="dropTargetFor(type, String(propName))"
+                      @script-drop="onScriptDrop(type, $event)"
+                      @commit="onPropCommit(type, String(propName))"
                     />
                   </div>
                 </div>

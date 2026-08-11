@@ -6,14 +6,22 @@ import { parseVec2 } from '../utils/node'
 const props = defineProps<{
   def: PropDef
   modelValue: unknown
-  /** 是否作为资源拖放目标（SpriteComponent.framePath） */
-  dropTarget?: boolean
+  /** 资源拖放：图片路径 / 脚本路径 */
+  dropTarget?: 'image' | 'script' | boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: unknown]
   commit: []
+  /** 脚本路径拖放（由 Inspector 做 .meta 校验与 UUID 回填） */
+  'script-drop': [event: DragEvent]
 }>()
+
+const dropKind = computed(() => {
+  if (props.dropTarget === true || props.dropTarget === 'image') return 'image'
+  if (props.dropTarget === 'script') return 'script'
+  return null
+})
 
 const strValue = computed({
   get: () => (typeof props.modelValue === 'string' ? props.modelValue : String(props.modelValue ?? '')),
@@ -65,28 +73,38 @@ function setVec(axis: 'x' | 'y', v: number | undefined) {
 }
 
 function onDrop(e: DragEvent) {
-  if (!props.dropTarget) return
+  if (!dropKind.value) return
   e.preventDefault()
+  if (dropKind.value === 'script') {
+    emit('script-drop', e)
+    return
+  }
   const path = e.dataTransfer?.getData('text/plain')
   if (path) {
     emit('update:modelValue', path)
     emit('commit')
   }
 }
+
+const placeholder = computed(() => {
+  if (dropKind.value === 'image') return '可从下方资源管理器拖入图片'
+  if (dropKind.value === 'script') return '可拖入脚本文件，或输入本机绝对路径'
+  return ''
+})
 </script>
 
 <template>
   <!-- string -->
   <div
     v-if="def.type === 'string'"
-    :class="dropTarget ? 'rounded ring-1 ring-dashed ring-zinc-600' : ''"
+    :class="dropKind ? 'rounded ring-1 ring-dashed ring-zinc-600' : ''"
     @dragover.prevent
     @drop="onDrop"
   >
     <el-input
       v-model="strValue"
       size="small"
-      :placeholder="dropTarget ? '可从下方资源管理器拖入图片' : ''"
+      :placeholder="placeholder"
       @change="emit('commit')"
     />
   </div>

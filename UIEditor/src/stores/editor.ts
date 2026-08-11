@@ -274,6 +274,7 @@ export const useEditorStore = defineStore('editor', () => {
       baseName,
       root: currentUIData.value,
       readImage: (path) => project.getFileByPath(path),
+      componentDefs: project.componentDefs,
     })
   }
 
