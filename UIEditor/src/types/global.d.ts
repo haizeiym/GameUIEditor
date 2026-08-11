@@ -3,7 +3,7 @@
 interface DirectoryPickerOptions {
   id?: string
   mode?: 'read' | 'readwrite'
-  startIn?: string
+  startIn?: FileSystemHandle | string
 }
 
 interface FilePickerAcceptType {
@@ -16,6 +16,7 @@ interface OpenFilePickerOptions {
   excludeAcceptAllOption?: boolean
   types?: FilePickerAcceptType[]
   id?: string
+  startIn?: FileSystemHandle | string
 }
 
 interface SaveFilePickerOptions {

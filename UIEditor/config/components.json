@@ -99,7 +99,7 @@
       },
       "itemCreationMode": {
         "type": "enum",
-        "default": "PREFAB",
+        "default": "NODE",
         "options": [
           { "label": "NODE", "value": "NODE" },
           { "label": "PREFAB", "value": "PREFAB" }

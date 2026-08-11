@@ -99,6 +99,15 @@ async function onScriptDrop(type: string, e: DragEvent) {
     toastScriptMetaError(dropped.error || '拖入无效')
     return
   }
+  // 拖放阶段已解析出 uuid（如授权目录读 .meta）时直接写入，避免重复弹窗
+  if (dropped.uuid && node.value?.components[type]) {
+    const comp = node.value.components[type]!
+    comp.scriptPath = dropped.scriptPath
+    comp.scriptUuid = dropped.uuid
+    ElMessage.success(`已从 .meta 读取 UUID：${dropped.uuid}`)
+    editor.commit()
+    return
+  }
   await applyScriptPath(type, dropped.scriptPath)
 }
 

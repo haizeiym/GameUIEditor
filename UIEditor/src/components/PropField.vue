@@ -88,7 +88,8 @@ function onDrop(e: DragEvent) {
 
 const placeholder = computed(() => {
   if (dropKind.value === 'image') return '可从下方资源管理器拖入图片'
-  if (dropKind.value === 'script') return '可拖入脚本文件，或输入本机绝对路径'
+  if (dropKind.value === 'script')
+    return '拖入 .ts 或 .ts.meta；Mac 上可再选同目录 .meta 文件'
   return ''
 })
 </script>

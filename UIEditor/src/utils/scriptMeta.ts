@@ -45,6 +45,113 @@ function isAbsoluteFsPath(p: string): boolean {
   return p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p)
 }
 
+/** file:///Users/x/a.ts → /Users/x/a.ts；Windows file:///C:/x → C:/x */
+export function fileUrlToFsPath(url: string): string | null {
+  const raw = url.trim()
+  if (!raw.toLowerCase().startsWith('file:')) return null
+  try {
+    // 保留 decode，处理空格 %20 等
+    let path = decodeURIComponent(raw.replace(/^file:\/\//i, ''))
+    // Chrome Windows 常给出 /C:/Users/...
+    if (/^\/[a-zA-Z]:[\\/]/.test(path)) path = path.slice(1)
+    path = path.replace(/\\/g, '/')
+    return path || null
+  } catch {
+    return null
+  }
+}
+
+/** 从 DataTransfer 收集可能的绝对/相对路径（优先 file://） */
+function collectDropPathCandidates(dt: DataTransfer | null): string[] {
+  if (!dt) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  const push = (p: string) => {
+    const t = p.trim()
+    if (!t || seen.has(t)) return
+    seen.add(t)
+    out.push(t)
+  }
+
+  // 1) Finder / 资源管理器拖入：text/uri-list → file:///绝对路径
+  const uriList = dt.getData('text/uri-list') || ''
+  for (const line of uriList.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const fsPath = fileUrlToFsPath(trimmed)
+    if (fsPath) push(fsPath)
+    else push(trimmed)
+  }
+
+  // 2) text/plain：可能是绝对路径、项目相对路径、或 file://
+  const plain = dt.getData('text/plain')?.trim() || ''
+  if (plain) {
+    const asFile = fileUrlToFsPath(plain)
+    push(asFile || plain)
+  }
+
+  return out
+}
+
+/**
+ * 浏览器无法暴露本机绝对路径时：用文件选择器选同目录 `.meta`（可选文件，不是文件夹）。
+ * `startIn` 指向刚拖入的脚本，系统文件框会打开到同一目录。
+ */
+async function readMetaViaOpenFilePicker(
+  scriptHandle: FileSystemFileHandle,
+  scriptFileName: string,
+): Promise<{ metaText: string; scriptPath: string } | null> {
+  if (typeof window.showOpenFilePicker !== 'function') return null
+  const metaName = `${scriptFileName}.meta`
+  ElMessage.info(`请选择同目录下的「${metaName}」文件（不要选文件夹）`)
+  try {
+    const [metaHandle] = await window.showOpenFilePicker({
+      id: 'uieditor-cocos-script-meta',
+      multiple: false,
+      // 打开到拖入脚本所在目录，方便点选 xxx.ts.meta
+      startIn: scriptHandle,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'Cocos 脚本 Meta (.meta)',
+          accept: {
+            'application/json': ['.meta'],
+            'text/plain': ['.meta'],
+          },
+        },
+      ],
+    } as Parameters<Window['showOpenFilePicker']>[0])
+    if (!metaHandle) return null
+    // 若用户误选了别的文件，仍尝试按内容解析；名称不对则提示
+    if (metaHandle.name.toLowerCase() !== metaName.toLowerCase()) {
+      ElMessage.warning(`建议选择「${metaName}」，当前为「${metaHandle.name}」，将尝试解析…`)
+    }
+    const metaText = await readTextFile(metaHandle)
+    return { metaText, scriptPath: scriptFileName }
+  } catch {
+    // 用户取消
+    return null
+  }
+}
+
+/** 直接读取拖入的 .meta 文件内容 */
+async function readDroppedMetaFile(
+  handle: FileSystemFileHandle,
+): Promise<ResolveScriptMetaResult> {
+  const name = handle.name
+  if (!name.toLowerCase().endsWith('.meta')) {
+    return { ok: false, scriptPath: name, error: '请拖入 .ts 脚本或对应的 .meta 文件' }
+  }
+  const metaText = await readTextFile(handle)
+  const uuid = parseUuidFromMetaText(metaText)
+  if (!uuid) {
+    return { ok: false, scriptPath: name, error: `.meta 中缺少合法 uuid：${name}` }
+  }
+  // SimpleList.ts.meta → SimpleList.ts
+  const scriptPath = name.replace(/\.meta$/i, '')
+  return { ok: true, scriptPath, uuid }
+}
+
 /** 开发态：通过 Vite 中间件读本机文件；Node/CLI 直接读盘 */
 async function readLocalFsText(absPath: string): Promise<string | null> {
   if (typeof window !== 'undefined') {
@@ -168,15 +275,28 @@ export async function resolveScriptMetaUuid(
   return { ok: true, scriptPath: trimmed, uuid }
 }
 
-/** 从拖放事件解析脚本路径（拒绝文件夹） */
+/** 从拖放事件解析脚本路径（拒绝文件夹；支持 file:// 绝对路径） */
 export async function scriptPathFromDrop(e: DragEvent): Promise<ResolveScriptMetaResult> {
-  const items = e.dataTransfer?.items
+  const dt = e.dataTransfer
+  const pathCandidates = collectDropPathCandidates(dt)
+
+  // 优先：已带绝对路径 / 合法脚本路径的候选（含 Finder file://）
+  for (const cand of pathCandidates) {
+    if (cand.endsWith('/') || cand.endsWith('\\')) {
+      return { ok: false, scriptPath: cand, error: '不能拖入文件夹，请拖入脚本文件' }
+    }
+    const name = cand.split(/[/\\]/).pop() || ''
+    if (!isScriptFileName(name)) continue
+    // 绝对路径或相对路径都先交给 resolveScriptMetaUuid 校验
+    return { ok: true, scriptPath: cand }
+  }
+
+  const items = dt?.items
   if (items) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i]!
       if (item.kind !== 'file') continue
 
-      // File System Access：可区分文件/目录
       const anyItem = item as DataTransferItem & {
         getAsFileSystemHandle?: () => Promise<FileSystemHandle>
       }
@@ -188,31 +308,47 @@ export async function scriptPathFromDrop(e: DragEvent): Promise<ResolveScriptMet
           }
           if (handle.kind === 'file') {
             const name = handle.name
+            // 直接拖入 .meta：读 UUID，脚本路径取去掉 .meta 的文件名
+            if (name.toLowerCase().endsWith('.meta')) {
+              return await readDroppedMetaFile(handle as FileSystemFileHandle)
+            }
             if (!isScriptFileName(name)) {
               return {
                 ok: false,
                 scriptPath: name,
-                error: '只能拖入脚本文件（.ts / .js）',
+                error: '只能拖入脚本文件（.ts / .js）或对应的 .meta',
               }
             }
             const file = await (handle as FileSystemFileHandle).getFile()
-            const abs =
+            const electronPath =
               typeof (file as File & { path?: string }).path === 'string'
-                ? (file as File & { path?: string }).path!
+                ? (file as File & { path?: string }).path!.trim()
                 : ''
-            // 无绝对路径时，仅有文件名不够读 meta
-            if (abs) {
-              return { ok: true, scriptPath: abs }
+            if (electronPath) {
+              return { ok: true, scriptPath: electronPath }
             }
-            // 尝试 text/plain 是否带了路径
-            const textPath = e.dataTransfer?.getData('text/plain')?.trim()
-            if (textPath) {
-              return { ok: true, scriptPath: textPath }
+
+            // Mac Chrome 等：无绝对路径 → 弹出「选文件」对话框选同目录 .meta（不是选文件夹）
+            const picked = await readMetaViaOpenFilePicker(
+              handle as FileSystemFileHandle,
+              name,
+            )
+            if (picked) {
+              const uuid = parseUuidFromMetaText(picked.metaText)
+              if (!uuid) {
+                return {
+                  ok: false,
+                  scriptPath: picked.scriptPath,
+                  error: `.meta 中缺少合法 uuid：${name}.meta`,
+                }
+              }
+              return { ok: true, scriptPath: picked.scriptPath, uuid }
             }
             return {
               ok: false,
               scriptPath: name,
-              error: '无法获取脚本绝对路径，请改用手动输入本机路径，或从资源管理器拖入带路径的条目',
+              error:
+                '已取消。也可直接拖入「脚本.ts.meta」，或手动粘贴绝对路径（如 /Users/.../SimpleList.ts）',
             }
           }
         } catch {
@@ -229,30 +365,22 @@ export async function scriptPathFromDrop(e: DragEvent): Promise<ResolveScriptMet
             error: '只能拖入脚本文件（.ts / .js）',
           }
         }
-        const abs =
+        const electronPath =
           typeof (file as File & { path?: string }).path === 'string'
-            ? (file as File & { path?: string }).path!
+            ? (file as File & { path?: string }).path!.trim()
             : ''
-        if (abs) return { ok: true, scriptPath: abs }
+        if (electronPath) return { ok: true, scriptPath: electronPath }
       }
     }
   }
 
-  const textPath = e.dataTransfer?.getData('text/plain')?.trim()
-  if (textPath) {
-    // 纯路径拖入：若以 / 结尾或无扩展名，视为文件夹
-    if (textPath.endsWith('/') || textPath.endsWith('\\')) {
-      return { ok: false, scriptPath: textPath, error: '不能拖入文件夹，请拖入脚本文件' }
+  // 仅有非脚本候选时给出明确提示
+  if (pathCandidates.length) {
+    return {
+      ok: false,
+      scriptPath: pathCandidates[0]!,
+      error: '只能拖入脚本文件（.ts / .js）',
     }
-    const name = textPath.split(/[/\\]/).pop() || ''
-    if (!isScriptFileName(name)) {
-      return {
-        ok: false,
-        scriptPath: textPath,
-        error: '只能拖入脚本文件（.ts / .js）',
-      }
-    }
-    return { ok: true, scriptPath: textPath }
   }
 
   return { ok: false, scriptPath: '', error: '未检测到可识别的脚本文件' }
