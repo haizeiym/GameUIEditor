@@ -32,6 +32,8 @@ export interface PropDef {
   min?: number
   max?: number
   step?: number
+  /** Inspector 展示名；缺省回退为属性 key */
+  displayName?: string
   /** type=enum 时的下拉选项（如 Sprite.sizeMode / Sprite.type） */
   options?: EnumOption[]
 }

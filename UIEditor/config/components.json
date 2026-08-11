@@ -79,5 +79,35 @@
       }
     },
     "componentType": 1
+  },
+  "SimpleListComponent": {
+    "properties": {
+      "Horizontal":{
+        "type": "boolean",
+        "default": false,
+        "displayName": "水平方向"
+      },
+      "Vertical":{
+        "type": "boolean",
+        "default": false,
+        "displayName": "垂直方向"
+      },
+      
+      "itemCreationMode": {
+        "type": "enum",
+        "default": "PREFAB",
+        "options": [
+          { "label": "NODE", "value": "NODE" },
+          { "label": "PREFAB", "value": "PREFAB" }
+        ]
+      },
+      "itemPrefab": { "type": "string", "default": "" },
+      "itemNode": { "type": "string", "default": "" },
+      "spacing": { "type": "number", "default": 0, "displayName": "Item 间距" },
+      "paddingStart": { "type": "number", "default": 0, "displayName": "顶部/左侧边距" },
+      "paddingEnd": { "type": "number", "default": 0, "displayName": "底部/右侧边距" },
+      "isPageMode": { "type": "boolean", "default": false, "displayName": "Page 模式" }
+    },
+    "componentType": 3
   }
 }

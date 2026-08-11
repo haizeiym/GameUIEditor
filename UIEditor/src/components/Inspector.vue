@@ -187,8 +187,11 @@ async function onDeleteNode() {
                   :key="propName"
                   class="flex items-center gap-2"
                 >
-                  <span class="w-20 shrink-0 truncate text-zinc-400" :title="String(propName)">
-                    {{ propName }}
+                  <span
+                    class="w-24 shrink-0 truncate text-zinc-400"
+                    :title="propDef.displayName ? `${propDef.displayName} (${propName})` : String(propName)"
+                  >
+                    {{ propDef.displayName || propName }}
                   </span>
                   <div class="min-w-0 flex-1">
                     <PropField
