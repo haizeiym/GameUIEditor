@@ -813,6 +813,11 @@ function onStagePointerUp(e?: FederatedPointerEvent) {
   }
 }
 
+const VIEW_SCALE_MIN = 0.25
+const VIEW_SCALE_MAX = 3
+/** 滚轮缩放灵敏度：deltaY 按像素归一后，约每 100px ≈ 10% 缩放 */
+const VIEW_ZOOM_SENSITIVITY = 0.001
+
 function onWheel(e: WheelEvent) {
   if (!world || !wrapEl.value) return
   e.preventDefault()
@@ -820,8 +825,15 @@ function onWheel(e: WheelEvent) {
   const rect = wrapEl.value.getBoundingClientRect()
   const px = e.clientX - rect.left
   const py = e.clientY - rect.top
-  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1
-  const newScale = Math.min(Math.max(world.scale.x * factor, 0.1), 8)
+
+  // 统一成近似像素 delta（鼠标滚轮常为 line；触控板为 pixel）
+  let dy = e.deltaY
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) dy *= 16
+  else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) dy *= rect.height
+
+  const factor = Math.exp(-dy * VIEW_ZOOM_SENSITIVITY)
+  const newScale = Math.min(Math.max(world.scale.x * factor, VIEW_SCALE_MIN), VIEW_SCALE_MAX)
+  if (newScale === world.scale.x) return
   const k = newScale / world.scale.x
   world.position.set(px - (px - world.x) * k, py - (py - world.y) * k)
   world.scale.set(newScale)
