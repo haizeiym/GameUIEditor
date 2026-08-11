@@ -401,10 +401,11 @@ interface HitCandidate {
 }
 
 /**
- * 收集所有包含点击点的节点，再按：
- * 1) 深度更深优先（子节点压过父节点 / Root）
- * 2) 同深度时面积更小优先（更精确的小节点）
- * 3) 同级 children 下标更大优先（后创建的在上，不用 zIndex）
+ * 收集指针下所有命中节点，再决定选中谁：
+ * 1) 若节点树当前选中项仍在命中集合中 → 保持该选中（相交区域不跳到祖先/兄弟）
+ * 2) 否则：depth 更深优先（如 Root→A→B→C→D 且均命中 → D>C>B>A）
+ * 3) 同深度：面积更小优先；再同：同级 children 下标更大优先
+ * 禁止点嵌套子节点时误选 Root（Root 仅在无其它命中时可选）。
  */
 function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | null {
   const hits: HitCandidate[] = []
@@ -413,7 +414,7 @@ function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | nu
     if (!c || c.destroyed) return
 
     for (let i = 0; i < node.children.length; i++) {
-      walk(node.children[i], depth + 1, i)
+      walk(node.children[i]!, depth + 1, i)
     }
 
     if (containsStagePoint(node, c, stageX, stageY)) {
@@ -429,12 +430,19 @@ function pickBestNode(root: UINode, stageX: number, stageY: number): UINode | nu
 
   if (!hits.length) return null
 
+  // 当前树选中仍命中 → 粘滞选中（D 与 B 相交时，已选 D 则继续选 D）
+  const selectedId = editor.selectedId
+  if (selectedId) {
+    const sticky = hits.find((h) => h.node._id === selectedId)
+    if (sticky) return sticky.node
+  }
+
   hits.sort((a, b) => {
     if (b.depth !== a.depth) return b.depth - a.depth
     if (a.area !== b.area) return a.area - b.area
     return b.siblingIndex - a.siblingIndex
   })
-  return hits[0].node
+  return hits[0]!.node
 }
 
 // ---------- 选中高亮框（仅自身尺寸，不含子节点包围盒） ----------
