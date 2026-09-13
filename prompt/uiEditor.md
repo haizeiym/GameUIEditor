@@ -212,6 +212,7 @@ trim；若结果为空 → "untitled"
 - 【切换横竖屏】：默认横屏；交换设计宽高并同步 Root。
 - 【设置分辨率】：默认 `1366×768`；同步 Root。
 - 【导入PSD】✓CLI（第五节）。
+- 【导出PSD模版】：当前 UI → `.psd` 图层模版（第十节）；网页 `showSaveFilePicker`。
 - 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）；网页导出时弹出**通用进度框**（与引擎解耦，见 §6.7）。
 - 【编辑组件库】：Modal（Monaco 或 textarea）编辑 `components.json`；保存校验 JSON → 写盘 → 刷新 Pinia 预设。
 
@@ -419,6 +420,7 @@ uieditor --help
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
+8. 导出 PSD 模版：图层名=节点名；PS 面板顺序=节点树；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 
 ---
 
@@ -427,3 +429,55 @@ uieditor --help
 - 不强制图集（Atlas）、Widget 全屏（可选）。
 - 不支持无 File System Access API 的浏览器作为主路径（可提示换 Chrome/Edge）。
 - 不为「好看」改变 §五 / §六 的数值约定。
+- 导出 PSD **模版**不是 §五 的逆过程：不回写真实 `framePath` 像素，不保证再导入后 `children` 数组与导出前逐项相同（面板顺序以节点树为准，见 §10.3）。
+
+# 十、导出 PSD 模版（网页）
+
+给美术一份**可替换的图层壳**：结构、名称、显隐、占位尺寸与当前 UI 对齐。用 `ag-psd` `writePsd`。核心逻辑与 DOM 解耦（`psdExport.ts`）；网页按钮只负责选文件与写盘。
+
+## 10.1 入口与产物
+- 顶部【导出PSD模版】；无当前 UI 时禁用、禁止导出。
+- `showSaveFilePicker`，建议名：`{当前 json 去扩展名}.psd`（经 `sanitizeFsName`）。
+
+## 10.2 文档与图层映射
+- **Root = PSD 文档**，不是一层。`width/height` = Root 宽高（设计分辨率），至少为 1。
+- Root 的 `children` → 文档顶层图层；有子节点的节点 → **图层组**（`opened: true`）；无子节点 → 普通图层。
+- `layer.name = node.name`（空则 `"Layer"`）。
+- `layer.hidden = (node.active === false)`。
+- 有 `OpacityComponent` 且规范后 `< 1` 时写 `layer.opacity`（规范同 §5.3：`>1` 则 `/255`，再 clamp 到 `[0,1]`）。
+
+## 10.3 顺序（必须）
+节点树（`el-tree`）自上而下 = `children[0] → children[n]`。  
+PS 图层面板自上而下必须与之相同。
+
+`ag-psd` 的 `children` 是引擎顺序（**底层在前**），因此**每一层**写入时对 `children` 做 `reverse`。例：节点树 `A → B → C`（A 在上）→ 写入 `[C, B, A]` → 面板显示 `A → B → C`。
+
+这与 §5.4「导入不 reverse」不同：导入对齐引擎绘制；本导出对齐**树的显示顺序**。
+
+## 10.4 坐标（§5.2 的逆）
+子节点坐标先累加为相对文档中心的绝对中心 `(absX, absY)`（Root 为 `(0,0)`），再：
+
+```text
+left   = absX - width/2  + docW/2
+top    = absY - height/2 + docH/2
+right  = left + max(1, width)
+bottom = top  + max(1, height)
+```
+
+禁止再缩放或「为好看」平移。
+
+## 10.5 占位图（图片节点）
+- **图片节点** = 挂了 `SpriteComponent` 的叶节点。
+- **禁止**把 `framePath` / 项目内贴图写入 PSD。
+- 所有图片层使用同一套占位像素：不透明灰 `RGB(192,192,192)`，尺寸 = 该节点 `width×height`（至少 `1×1`）。浏览器可同步写 `canvas`；无 DOM 时只写 `imageData`。
+- 图层组即使自身挂了 Sprite，也只导出为组（不往组上贴像素）。无 Sprite 的叶节点只出空图层（名称 + 矩形 + 显隐），不造占位图。
+- `writePsd`：`noBackground: true`，`trimImageData: false`（避免裁掉占位矩形）。
+- 文档必须带 `canvas` 合成图；底层自动加不透明 `Background`（全画布浅灰），供 [在线PS](https://zaixianps.net/) / Photopea 解码预览。
+- 图层矩形裁剪到文档内（`left/top ≥ 0`，`right/bottom ≤ 文档尺寸`），避免负坐标被在线 PS 当成坏图。
+- 只写原生 `canvas`，禁止把普通对象当 `ImageData`。`generateThumbnail` 失败则降级无缩略图。
+
+## 10.6 验收
+- 面板图层/组层级与节点树同构（Root 除外），名称一致。
+- `active: false` 的节点在 PS 中为隐藏图层。
+- 打开 PSD 看不到业务贴图；有 Sprite 的叶图层为灰底块，位置/尺寸对应该节点。
+- 现有导入 PSD / 导出 Prefab / 画布交互行为不变。

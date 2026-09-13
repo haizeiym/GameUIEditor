@@ -179,6 +179,19 @@ async function onImportPsd() {
   }
 }
 
+async function onExportPsdTemplate() {
+  if (!editor.currentUIData) {
+    ElMessage.warning('当前没有打开的 UI 界面')
+    return
+  }
+  try {
+    await editor.exportPsdTemplate()
+    ElMessage.success('PSD 模版导出成功')
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导出 PSD 模版失败：${String(err)}`)
+  }
+}
+
 async function onExportCocosPrefab() {
   if (!editor.currentUIData) {
     ElMessage.warning('当前没有打开的 UI 界面')
@@ -247,6 +260,13 @@ async function onExportCocosPrefab() {
         @click="onImportPsd"
       >
         导入PSD
+      </el-button>
+      <el-button
+        :disabled="!editor.currentUIData"
+        title="按当前节点树导出 Photoshop 图层模版（名称/结构/显隐；图片层为占位图）"
+        @click="onExportPsdTemplate"
+      >
+        导出PSD模版
       </el-button>
       <el-button
         :disabled="!editor.currentUIData || !project.dirHandle"

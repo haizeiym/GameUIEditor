@@ -3,7 +3,8 @@ import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { Orientation, UINode } from '../types'
 import { exportCocosPrefab, pathExists } from '../utils/cocosPrefab'
 import type { OnExportProgress } from '../utils/exportProgress'
-import { readTextFile, writeTextFile } from '../utils/fs'
+import { readTextFile, writeBinaryFile, writeTextFile } from '../utils/fs'
+import { writePsdTemplateBytes } from '../utils/psdExport'
 import {
   canAddComponent,
   cloneWithNewIds,
@@ -248,6 +249,24 @@ export const useEditorStore = defineStore('editor', () => {
     await writeTextFile(handle, serializeForDisk(currentUIData.value))
   }
 
+  /** 导出当前节点树为 Photoshop 模版 PSD（图层名 / 结构 / 显隐；图片层用占位图） */
+  async function exportPsdTemplate() {
+    if (!currentUIData.value) throw new Error('当前没有打开的 UI 界面')
+    const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
+    const suggested = `${sanitizeFsName(rawName) || 'ui'}.psd`
+    const handle = await window.showSaveFilePicker({
+      suggestedName: suggested,
+      types: [
+        {
+          description: 'Photoshop PSD',
+          accept: { 'image/vnd.adobe.photoshop': ['.psd'], 'application/octet-stream': ['.psd'] },
+        },
+      ],
+    })
+    const bytes = writePsdTemplateBytes(currentUIData.value)
+    await writeBinaryFile(handle, new Blob([bytes], { type: 'application/octet-stream' }))
+  }
+
   /**
    * 导出当前 UI 为 Cocos Creator 3.8 Prefab 资源包。
    * @param confirmOverwrite 目标目录已存在时询问是否覆盖；返回 false 则取消
@@ -380,6 +399,7 @@ export const useEditorStore = defineStore('editor', () => {
     loadUIFile,
     importUIFile,
     exportUIFile,
+    exportPsdTemplate,
     exportCocosCreatorPrefab,
     addChild,
     duplicateNode,
