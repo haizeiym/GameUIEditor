@@ -24,6 +24,7 @@ interface SaveFilePickerOptions {
   excludeAcceptAllOption?: boolean
   types?: FilePickerAcceptType[]
   id?: string
+  startIn?: FileSystemHandle | string
 }
 
 interface Window {
@@ -33,6 +34,9 @@ interface Window {
 }
 
 interface FileSystemHandle {
+  readonly kind: 'file' | 'directory'
+  readonly name: string
+  isSameEntry(other: FileSystemHandle): Promise<boolean>
   queryPermission?(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>
   requestPermission?(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>
 }

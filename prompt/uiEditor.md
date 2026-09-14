@@ -42,7 +42,7 @@
 | CLI ↔ 网页 | 同一 PSD / 同一 JSON：批处理结果与网页按钮产物在上表意义上等价。 |
 
 ## 0.4 实现约束
-- 核心逻辑（PSD、节点规范化、Prefab 构建、`sanitizeFsName`、UUID）必须与 DOM / Pinia / `showDirectoryPicker` **解耦**，供网页与 CLI 共用。
+- 核心逻辑（PSD、节点规范化、Prefab 构建、`sanitizeFsName`、中文文件名拼音首字母、UUID）必须与 DOM / Pinia / `showDirectoryPicker` **解耦**，供网页与 CLI 共用。
 - CLI **禁止**依赖 `window` / File System Access API。
 - 写盘 JSON **必须剥离**运行时 `_id`。
 - 出现歧义时：以「可复现数据产物」优先于视觉微调。
@@ -194,6 +194,7 @@ interface UINode {
 去掉前导 .
 trim；若结果为空 → "untitled"
 ```
+界面名、目录名、无汉字的图片名用此函数。含汉字的 PNG/JPG **写盘名**见 §5.6（节点 `name` 不改）。
 
 ## 2.6 读写规范化
 - **读入**：补齐缺失基础字段；为整树生成运行时 `_id`；子节点缺 `zIndex` 时用其在父 `children` 中的下标。
@@ -211,9 +212,9 @@ trim；若结果为空 → "untitled"
 - 【导出UI界面】：当前 UI 另存。
 - 【切换横竖屏】：默认横屏；交换设计宽高并同步 Root。
 - 【设置分辨率】：默认 `1366×768`；同步 Root。
-- 【导入PSD】✓CLI（第五节）。
-- 【导出PSD模版】：当前 UI → `.psd` 图层模版（第十节）；网页 `showSaveFilePicker`。
-- 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）；网页导出时弹出**通用进度框**（与引擎解耦，见 §6.7）。
+- 【导入PSD】✓CLI（第五节）；网页记录最近 10 条路径（第十一节）。
+- 【导出PSD模版】：当前 UI → `.psd` 图层模版（第十节）；网页 `showSaveFilePicker`；记录最近 10 条路径（第十一节）。
+- 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）；网页导出时弹出**通用进度框**（与引擎解耦，见 §6.7）；记录最近 10 条路径（第十一节）。
 - 【编辑组件库】：Modal（Monaco 或 textarea）编辑 `components.json`；保存校验 JSON → 写盘 → 刷新 Pinia 预设。
 
 ## 3.2 左侧
@@ -304,8 +305,22 @@ y = top  + height/2 - docH/2
 - 导出 PNG；`SpriteComponent`：`framePath`、`color: "#FFFFFF"`、`sizeMode: "TRIMMED"`、`type: "SIMPLE"`。
 - `active = !layer.hidden`。
 - 同名 PNG：`name.png`、`name_1.png`…（大小写不敏感去重）。
+- **中文文件名**（见下节）：含汉字的图层/图片名转拼音首字母后再写盘；`framePath` 用新文件名。节点 `name` 仍为图层原名。
 
-## 5.6 环境差异
+## 5.6 中文图片文件名（必须）
+导出 PNG/JPG（PSD 导入写盘、Prefab 打包复制）时，若**去掉扩展名后的文件名含汉字**（`[\u4e00-\u9fff]`）：
+
+1. 用成熟拼音库 **`pinyin-pro`**：`pattern: 'first'`、`toneType: 'none'`、`nonZh: 'consecutive'`（非汉字原样保留）。
+2. 去空白后经 `sanitizeFsName`，再只保留 `[A-Za-z0-9._-]`，**全体小写**。空则 `img`。
+3. 扩展名保持来源（PSD 像素层固定 `.png`；Prefab 跟原文件）。
+4. **首字母碰撞**（大小写不敏感）：`bj.png`、`bj_1.png`、`bj_2.png`…
+5. 写盘文件名与 JSON `SpriteComponent.framePath` 的末段必须是新名，禁止再写中文文件名。
+
+例：图层「背景」→ `bj.png`；「布局」也是 `bj` → `bj_1.png`。节点仍显示「背景」「布局」。
+
+无汉字则仍用 `sanitizeFsName`（现有规则），不去拼音。
+
+## 5.7 环境差异
 - 浏览器：`readPsd(buffer)` + `layer.canvas.toBlob`。
 - Node：`readPsd(buffer, { useImageData: true })` + `pngjs` 编码，避免把 Node 专用解码打进浏览器主包。
 
@@ -327,7 +342,9 @@ y = top  + height/2 - docH/2
 ```
 
 ## 6.2 资源与稳定 UUID
+- **导出名称** 导出的文件夹名，prefab名称，及脚本名称不要包括中文，如果遇到中文同§5.6 处理，不同处理为全拼音，且遵循驼峰命名规则
 - **只打包** JSON 中实际引用的 `SpriteComponent.framePath`；缺图失败并列出路径。
+- 复制到 `{out}/…/UI/` 时文件名按 §5.6 处理（含汉字则拼音首字母；碰撞 `_1` `_2`）。
 - Prefab 内必须用 SpriteFrame UUID（`{uuid}@f9941`），禁止写入路径字符串。
 - 子 meta key：texture `6c48a`，sprite-frame `f9941`。
 - **稳定 UUID**：由种子字符串（建议含「导出包内相对资源身份」，如同名导出路径）经可复现哈希生成 RFC 风格 UUID；**同路径多次导出 UUID 不变**。推荐算法（可原样实现）：
@@ -421,6 +438,8 @@ uieditor --help
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
+9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
+10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，节点名仍为「背景」；两层同首字母时出现 `bj_1.png`。
 
 ---
 
@@ -486,3 +505,30 @@ bottom = top  + max(1, height)
 - `active: false` 的节点在 PS 中为隐藏图层。
 - 打开 PSD 看不到业务贴图；有 Sprite 的叶图层为灰底块，位置/尺寸对应该节点。
 - 现有导入 PSD / 导出 Prefab / 画布交互行为不变。
+
+# 十一、最近路径（网页）
+
+【导入PSD】【导出Cocos Prefab】【导出PSD模版】成功后记住目标，每类最多 **10** 条，新的在前；同名/同一句柄去重后置顶。仅网页；CLI 不记。
+
+## 11.1 存什么
+浏览器**不提供**本机绝对路径。因此：
+
+| 存储 | 内容 |
+|---|---|
+| `localStorage` 键 `uieditor.recent-io-paths` | 展示用：`kind` / `id` / `name`（文件或目录名）/ `ts` |
+| IndexedDB `uieditor-recent-io` | `id → FileSystemHandle`（结构化克隆；`localStorage` 存不了句柄） |
+
+`kind`：`import-psd`（文件）· `export-prefab`（目录）· `export-psd-template`（文件）。
+
+## 11.2 交互
+- 按钮为 split：左键仍弹出系统选择器；`startIn` 为该类最近一条句柄（若权限仍在）。
+- 右侧下拉为最近列表（仅 `name`）；点选则复用句柄（`queryPermission` / `requestPermission`），不再选目录/文件。
+- 句柄失效或拒绝授权：从列表删除，并回退到系统选择器。
+- 取消选择器（Abort）不写入。
+
+## 11.3 验收
+- 连续成功 11 次后列表长度为 10，且为最近 10 次。
+- 刷新页面后列表仍在；点最近项能完成对应导入/导出。
+- 现有导入/导出产物与逻辑不变。
+
+---

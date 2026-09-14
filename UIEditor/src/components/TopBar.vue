@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExportProgress } from '../composables/useExportProgress'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
 import { createDefaultUIData, serializeForDisk } from '../utils/node'
+import {
+  type RecentIoKind,
+  type RecentIoMeta,
+  ensureHandlePermission,
+  getRecentHandle,
+  latestRecentHandle,
+  listRecentIo,
+  rememberRecentIo,
+  removeRecentIo,
+} from '../utils/recentIoPaths'
 import ComponentLibDialog from './ComponentLibDialog.vue'
 import ExportProgressDialog from './ExportProgressDialog.vue'
 
@@ -37,6 +47,22 @@ const saveLabel = computed(() => {
       return ''
   }
 })
+
+const recents = ref<Record<RecentIoKind, RecentIoMeta[]>>({
+  'import-psd': [],
+  'export-prefab': [],
+  'export-psd-template': [],
+})
+
+function refreshRecents() {
+  recents.value = {
+    'import-psd': listRecentIo('import-psd'),
+    'export-prefab': listRecentIo('export-prefab'),
+    'export-psd-template': listRecentIo('export-psd-template'),
+  }
+}
+
+onMounted(refreshRecents)
 
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
@@ -136,12 +162,61 @@ function onConfirmResolution() {
   ElMessage.success(`分辨率已设为 ${editor.resolutionLabel}`)
 }
 
+async function resolveRecentHandle(
+  id: string,
+  expect: 'file' | 'directory',
+  mode: 'read' | 'readwrite',
+): Promise<FileSystemHandle | null> {
+  const handle = await getRecentHandle(id)
+  if (!handle || handle.kind !== expect) {
+    await removeRecentIo(id)
+    refreshRecents()
+    ElMessage.warning('最近路径已失效，请重新选择')
+    return null
+  }
+  if (!(await ensureHandlePermission(handle, mode))) {
+    await removeRecentIo(id)
+    refreshRecents()
+    ElMessage.warning('无法访问该路径，请重新选择')
+    return null
+  }
+  return handle
+}
+
+async function importPsdFromHandle(handle: FileSystemFileHandle) {
+  const file = await handle.getFile()
+  const loading = ElMessage({
+    message: `正在导入 PSD「${file.name}」并解析图层…`,
+    type: 'info',
+    duration: 0,
+    showClose: false,
+  })
+  try {
+    const result = await project.importPsd(file, {
+      rootWidth: editor.canvasWidth,
+      rootHeight: editor.canvasHeight,
+    })
+    loading.close()
+    await editor.loadUIFile(result.handle, result.path)
+    editor.setResolution(result.rootWidth, result.rootHeight)
+    await rememberRecentIo('import-psd', handle)
+    refreshRecents()
+    ElMessage.success(
+      `PSD 导入完成：${result.path}（${result.layerCount} 个图层，PSD ${result.documentWidth}×${result.documentHeight}，Root ${result.rootWidth}×${result.rootHeight}）`,
+    )
+  } catch (err) {
+    loading.close()
+    throw err
+  }
+}
+
 async function onImportPsd() {
   if (!project.dirHandle) {
     ElMessage.warning('请先新建或导入项目')
     return
   }
   try {
+    const startIn = await latestRecentHandle('import-psd')
     const [handle] = await window.showOpenFilePicker({
       types: [
         {
@@ -150,30 +225,27 @@ async function onImportPsd() {
         },
       ],
       excludeAcceptAllOption: false,
+      id: 'ui-editor-import-psd',
+      startIn,
     })
-    const file = await handle.getFile()
-    const loading = ElMessage({
-      message: `正在导入 PSD「${file.name}」并解析图层…`,
-      type: 'info',
-      duration: 0,
-      showClose: false,
-    })
-    try {
-      // Root = 当前设计分辨率（横/竖屏默认），不用 PSD 文档尺寸
-      const result = await project.importPsd(file, {
-        rootWidth: editor.canvasWidth,
-        rootHeight: editor.canvasHeight,
-      })
-      loading.close()
-      await editor.loadUIFile(result.handle, result.path)
-      editor.setResolution(result.rootWidth, result.rootHeight)
-      ElMessage.success(
-        `PSD 导入完成：${result.path}（${result.layerCount} 个图层，PSD ${result.documentWidth}×${result.documentHeight}，Root ${result.rootWidth}×${result.rootHeight}）`,
-      )
-    } catch (err) {
-      loading.close()
-      throw err
-    }
+    await importPsdFromHandle(handle)
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导入 PSD 失败：${String(err)}`)
+  }
+}
+
+async function onImportPsdRecent(id: string) {
+  if (!project.dirHandle) {
+    ElMessage.warning('请先新建或导入项目')
+    return
+  }
+  const handle = await resolveRecentHandle(id, 'file', 'read')
+  if (!handle) {
+    await onImportPsd()
+    return
+  }
+  try {
+    await importPsdFromHandle(handle as FileSystemFileHandle)
   } catch (err) {
     if (!isAbort(err)) ElMessage.error(`导入 PSD 失败：${String(err)}`)
   }
@@ -186,10 +258,53 @@ async function onExportPsdTemplate() {
   }
   try {
     await editor.exportPsdTemplate()
+    refreshRecents()
     ElMessage.success('PSD 模版导出成功')
   } catch (err) {
     if (!isAbort(err)) ElMessage.error(`导出 PSD 模版失败：${String(err)}`)
   }
+}
+
+async function onExportPsdTemplateRecent(id: string) {
+  if (!editor.currentUIData) {
+    ElMessage.warning('当前没有打开的 UI 界面')
+    return
+  }
+  const handle = await resolveRecentHandle(id, 'file', 'readwrite')
+  if (!handle) {
+    await onExportPsdTemplate()
+    return
+  }
+  try {
+    await editor.exportPsdTemplate(handle as FileSystemFileHandle)
+    refreshRecents()
+    ElMessage.success('PSD 模版导出成功')
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导出 PSD 模版失败：${String(err)}`)
+  }
+}
+
+async function runExportCocosPrefab(existingDir?: FileSystemDirectoryHandle) {
+  const result = await runWithProgress('cocos', async (onProgress) => {
+    return editor.exportCocosCreatorPrefab(async (baseName) => {
+      try {
+        await ElMessageBox.confirm(
+          `导出目录下已存在「${baseName}/」，是否覆盖？`,
+          '覆盖确认',
+          { confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning' },
+        )
+        return true
+      } catch {
+        return false
+      }
+    }, onProgress, existingDir)
+  })
+  if (!result) {
+    ElMessage.info('已取消导出')
+    return
+  }
+  refreshRecents()
+  ElMessage.success(`Prefab 导出完成：${result.prefabPath}（${result.imageCount} 张图片）`)
 }
 
 async function onExportCocosPrefab() {
@@ -202,27 +317,28 @@ async function onExportCocosPrefab() {
     return
   }
   try {
-    const result = await runWithProgress('cocos', async (onProgress) => {
-      return editor.exportCocosCreatorPrefab(async (baseName) => {
-        try {
-          await ElMessageBox.confirm(
-            `导出目录下已存在「${baseName}/」，是否覆盖？`,
-            '覆盖确认',
-            { confirmButtonText: '覆盖', cancelButtonText: '取消', type: 'warning' },
-          )
-          return true
-        } catch {
-          return false
-        }
-      }, onProgress)
-    })
-    if (!result) {
-      ElMessage.info('已取消导出')
-      return
-    }
-    ElMessage.success(
-      `Prefab 导出完成：${result.prefabPath}（${result.imageCount} 张图片）`,
-    )
+    await runExportCocosPrefab()
+  } catch (err) {
+    if (!isAbort(err)) ElMessage.error(`导出 Prefab 失败：${String(err)}`)
+  }
+}
+
+async function onExportCocosPrefabRecent(id: string) {
+  if (!editor.currentUIData) {
+    ElMessage.warning('当前没有打开的 UI 界面')
+    return
+  }
+  if (!project.dirHandle) {
+    ElMessage.warning('请先新建或导入项目（导出需读取项目内图片）')
+    return
+  }
+  const handle = await resolveRecentHandle(id, 'directory', 'readwrite')
+  if (!handle) {
+    await onExportCocosPrefab()
+    return
+  }
+  try {
+    await runExportCocosPrefab(handle as FileSystemDirectoryHandle)
   } catch (err) {
     if (!isAbort(err)) ElMessage.error(`导出 Prefab 失败：${String(err)}`)
   }
@@ -254,27 +370,81 @@ async function onExportCocosPrefab() {
       <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
         设置分辨率
       </el-button>
-      <el-button
+      <el-dropdown
+        split-button
+        size="small"
+        trigger="click"
         :disabled="!project.dirHandle"
         title="解析图层为图片并生成 UI JSON"
         @click="onImportPsd"
+        @command="onImportPsdRecent"
       >
         导入PSD
-      </el-button>
-      <el-button
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="item in recents['import-psd']"
+              :key="item.id"
+              :command="item.id"
+            >
+              {{ item.name }}
+            </el-dropdown-item>
+            <el-dropdown-item v-if="!recents['import-psd'].length" disabled>
+              暂无最近路径
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <el-dropdown
+        split-button
+        size="small"
+        trigger="click"
         :disabled="!editor.currentUIData"
         title="按当前节点树导出 Photoshop 图层模版（名称/结构/显隐；图片层为占位图）"
         @click="onExportPsdTemplate"
+        @command="onExportPsdTemplateRecent"
       >
         导出PSD模版
-      </el-button>
-      <el-button
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="item in recents['export-psd-template']"
+              :key="item.id"
+              :command="item.id"
+            >
+              {{ item.name }}
+            </el-dropdown-item>
+            <el-dropdown-item v-if="!recents['export-psd-template'].length" disabled>
+              暂无最近路径
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <el-dropdown
+        split-button
+        size="small"
+        trigger="click"
         :disabled="!editor.currentUIData || !project.dirHandle"
         title="导出为 Cocos Creator 3.8 Prefab（含图片与 .meta）"
         @click="onExportCocosPrefab"
+        @command="onExportCocosPrefabRecent"
       >
         导出Cocos Prefab
-      </el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item
+              v-for="item in recents['export-prefab']"
+              :key="item.id"
+              :command="item.id"
+            >
+              {{ item.name }}
+            </el-dropdown-item>
+            <el-dropdown-item v-if="!recents['export-prefab'].length" disabled>
+              暂无最近路径
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </el-button-group>
 
     <el-button size="small" @click="libDialogVisible = true">编辑组件库</el-button>

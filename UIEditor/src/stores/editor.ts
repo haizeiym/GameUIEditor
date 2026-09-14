@@ -6,6 +6,10 @@ import type { OnExportProgress } from '../utils/exportProgress'
 import { readTextFile, writeBinaryFile, writeTextFile } from '../utils/fs'
 import { writePsdTemplateBytes } from '../utils/psdExport'
 import {
+  latestRecentHandle,
+  rememberRecentIo,
+} from '../utils/recentIoPaths'
+import {
   canAddComponent,
   cloneWithNewIds,
   createComponentData,
@@ -250,21 +254,27 @@ export const useEditorStore = defineStore('editor', () => {
   }
 
   /** 导出当前节点树为 Photoshop 模版 PSD（图层名 / 结构 / 显隐；图片层用占位图） */
-  async function exportPsdTemplate() {
+  async function exportPsdTemplate(existing?: FileSystemFileHandle) {
     if (!currentUIData.value) throw new Error('当前没有打开的 UI 界面')
     const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
     const suggested = `${sanitizeFsName(rawName) || 'ui'}.psd`
-    const handle = await window.showSaveFilePicker({
-      suggestedName: suggested,
-      types: [
-        {
-          description: 'Photoshop PSD',
-          accept: { 'image/vnd.adobe.photoshop': ['.psd'], 'application/octet-stream': ['.psd'] },
-        },
-      ],
-    })
+    const startIn = existing ?? (await latestRecentHandle('export-psd-template'))
+    const handle =
+      existing ??
+      (await window.showSaveFilePicker({
+        suggestedName: suggested,
+        id: 'ui-editor-psd-template',
+        startIn,
+        types: [
+          {
+            description: 'Photoshop PSD',
+            accept: { 'image/vnd.adobe.photoshop': ['.psd'], 'application/octet-stream': ['.psd'] },
+          },
+        ],
+      }))
     const bytes = writePsdTemplateBytes(currentUIData.value)
     await writeBinaryFile(handle, bytes)
+    await rememberRecentIo('export-psd-template', handle)
   }
 
   /**
@@ -275,14 +285,19 @@ export const useEditorStore = defineStore('editor', () => {
   async function exportCocosCreatorPrefab(
     confirmOverwrite?: (baseName: string) => Promise<boolean>,
     onProgress?: OnExportProgress,
+    existingDir?: FileSystemDirectoryHandle,
   ) {
     if (!currentUIData.value) throw new Error('当前没有打开的 UI 界面')
     if (!project.dirHandle) throw new Error('请先新建或导入项目（导出需读取项目内图片）')
 
-    const exportRoot = await window.showDirectoryPicker({
-      mode: 'readwrite',
-      id: 'ui-editor-cocos-export',
-    })
+    const startIn = existingDir ?? (await latestRecentHandle('export-prefab'))
+    const exportRoot =
+      existingDir ??
+      (await window.showDirectoryPicker({
+        mode: 'readwrite',
+        id: 'ui-editor-cocos-export',
+        startIn,
+      }))
 
     const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
     const baseName = sanitizeFsName(rawName) || 'ui'
@@ -292,7 +307,7 @@ export const useEditorStore = defineStore('editor', () => {
       if (!ok) return null
     }
 
-    return exportCocosPrefab({
+    const result = await exportCocosPrefab({
       exportRoot,
       baseName,
       root: currentUIData.value,
@@ -300,6 +315,8 @@ export const useEditorStore = defineStore('editor', () => {
       componentDefs: project.componentDefs,
       onProgress,
     })
+    await rememberRecentIo('export-prefab', exportRoot)
+    return result
   }
 
   // ---------- 节点操作 ----------

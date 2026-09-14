@@ -12,7 +12,7 @@ export default defineConfig({
   clean: true,
   dts: false,
   // 仅打包本仓库源码；运行时从 node_modules 加载
-  external: ['ag-psd', 'pngjs', 'buffer'],
+  external: ['ag-psd', 'pngjs', 'buffer', 'pinyin-pro'],
   esbuildOptions(options) {
     options.legalComments = 'none'
   },

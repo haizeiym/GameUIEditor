@@ -13,6 +13,7 @@
 import { readPsd, type Layer } from 'ag-psd'
 import type { UINode } from '../types'
 import { sanitizeFsName } from './fsName'
+import { uniqueImageFileName } from './imageFileName'
 import { createNode, serializeForDisk } from './uiNode'
 
 export { sanitizeFsName } from './fsName'
@@ -203,16 +204,7 @@ export async function parsePsdBuffer(
   const usedNames = new Set<string>()
   let layerCount = 0
 
-  const uniquePngName = (raw: string): string => {
-    const base = sanitizeFsName(raw.replace(/\.png$/i, ''))
-    let candidate = `${base}.png`
-    let i = 1
-    while (usedNames.has(candidate.toLowerCase())) {
-      candidate = `${base}_${i++}.png`
-    }
-    usedNames.add(candidate.toLowerCase())
-    return candidate
-  }
+  const uniquePngName = (raw: string): string => uniqueImageFileName(usedNames, raw, '.png')
 
   const convertChildren = async (layers: readonly Layer[]): Promise<UINode[]> => {
     const kids: UINode[] = []

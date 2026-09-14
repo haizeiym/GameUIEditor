@@ -14,6 +14,7 @@ import {
   writeTextFile,
 } from './fs'
 import { sanitizeFsName } from './fsName'
+import { uniqueImageFileName } from './imageFileName'
 import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
 import { findDescendantByPath, resolveScriptBindField } from './uiNode'
 
@@ -266,20 +267,9 @@ export function collectFramePaths(root: UINode): string[] {
 
 function uniqueFileName(used: Set<string>, sourcePath: string): string {
   const raw = sourcePath.split('/').pop() || 'image.png'
-  const base = sanitizeFsName(raw)
-  const lower = base.toLowerCase()
-  if (!used.has(lower)) {
-    used.add(lower)
-    return base
-  }
-  const dot = base.lastIndexOf('.')
-  const stem = dot > 0 ? base.slice(0, dot) : base
-  const ext = dot > 0 ? base.slice(dot) : ''
-  let i = 1
-  while (used.has(`${stem}_${i}${ext}`.toLowerCase())) i++
-  const name = `${stem}_${i}${ext}`
-  used.add(name.toLowerCase())
-  return name
+  const dot = raw.lastIndexOf('.')
+  const ext = dot > 0 ? raw.slice(dot) : '.png'
+  return uniqueImageFileName(used, raw, ext)
 }
 
 function extForMeta(fileName: string): string {

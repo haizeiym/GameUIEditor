@@ -3,3 +3,4 @@
 /UIEditor/dist-cli
 /UIEditor/tsconfig.tsbuildinfo
 /.DS_Store
+/node_modules
