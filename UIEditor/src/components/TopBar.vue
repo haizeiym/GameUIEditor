@@ -346,123 +346,143 @@ async function onExportCocosPrefabRecent(id: string) {
 </script>
 
 <template>
-  <header
-    class="flex h-11 shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 select-none"
-  >
-    <span class="mr-2 text-sm font-bold tracking-wide text-sky-400">UI Editor</span>
+  <header class="topbar">
+    <span class="topbar-logo">UI Editor</span>
 
-    <el-button-group size="small">
-      <el-button @click="onNewProject">新建项目</el-button>
-      <el-button @click="onImportProject">导入项目</el-button>
-    </el-button-group>
+    <nav class="topbar-actions">
+      <div class="topbar-group">
+        <el-button-group size="small">
+          <el-button @click="onNewProject">新建项目</el-button>
+          <el-button @click="onImportProject">导入项目</el-button>
+        </el-button-group>
+      </div>
 
-    <el-button-group size="small">
-      <el-button :disabled="!project.dirHandle" @click="onNewUIFile">新建UI界面</el-button>
-      <el-button @click="onImportUIFile">导入UI界面</el-button>
-      <el-button :disabled="!editor.currentUIData" @click="onExportUIFile">导出UI界面</el-button>
-      <el-button
-        :disabled="!editor.currentUIData"
-        :title="`当前：${editor.orientation === 'landscape' ? '横屏' : '竖屏'}`"
-        @click="onToggleOrientation"
-      >
-        切换横竖屏
-      </el-button>
-      <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
-        设置分辨率
-      </el-button>
-      <el-dropdown
-        split-button
-        size="small"
-        trigger="click"
-        :disabled="!project.dirHandle"
-        title="解析图层为图片并生成 UI JSON"
-        @click="onImportPsd"
-        @command="onImportPsdRecent"
-      >
-        导入PSD
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item
-              v-for="item in recents['import-psd']"
-              :key="item.id"
-              :command="item.id"
-            >
-              {{ item.name }}
-            </el-dropdown-item>
-            <el-dropdown-item v-if="!recents['import-psd'].length" disabled>
-              暂无最近路径
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-      <el-dropdown
-        split-button
-        size="small"
-        trigger="click"
-        :disabled="!editor.currentUIData"
-        title="按当前节点树导出 Photoshop 图层模版（名称/结构/显隐；图片层为占位图）"
-        @click="onExportPsdTemplate"
-        @command="onExportPsdTemplateRecent"
-      >
-        导出PSD模版
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item
-              v-for="item in recents['export-psd-template']"
-              :key="item.id"
-              :command="item.id"
-            >
-              {{ item.name }}
-            </el-dropdown-item>
-            <el-dropdown-item v-if="!recents['export-psd-template'].length" disabled>
-              暂无最近路径
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-      <el-dropdown
-        split-button
-        size="small"
-        trigger="click"
-        :disabled="!editor.currentUIData || !project.dirHandle"
-        title="导出为 Cocos Creator 3.8 Prefab（含图片与 .meta）"
-        @click="onExportCocosPrefab"
-        @command="onExportCocosPrefabRecent"
-      >
-        导出Cocos Prefab
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item
-              v-for="item in recents['export-prefab']"
-              :key="item.id"
-              :command="item.id"
-            >
-              {{ item.name }}
-            </el-dropdown-item>
-            <el-dropdown-item v-if="!recents['export-prefab'].length" disabled>
-              暂无最近路径
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
-    </el-button-group>
+      <div class="topbar-group">
+        <el-button-group size="small">
+          <el-button :disabled="!project.dirHandle" @click="onNewUIFile">新建UI界面</el-button>
+          <el-button @click="onImportUIFile">导入UI界面</el-button>
+          <el-button :disabled="!editor.currentUIData" @click="onExportUIFile">导出UI界面</el-button>
+        </el-button-group>
+      </div>
 
-    <el-button size="small" @click="libDialogVisible = true">编辑组件库</el-button>
+      <div class="topbar-group">
+        <el-button-group size="small">
+          <el-button
+            :disabled="!editor.currentUIData"
+            :title="`当前：${editor.orientation === 'landscape' ? '横屏' : '竖屏'}`"
+            @click="onToggleOrientation"
+          >
+            切换横竖屏
+          </el-button>
+          <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
+            设置分辨率
+          </el-button>
+        </el-button-group>
+      </div>
 
-    <el-button-group size="small" class="ml-2">
-      <el-button :disabled="!editor.canUndo" title="Ctrl+Z" @click="editor.undo()">撤销</el-button>
-      <el-button :disabled="!editor.canRedo" title="Ctrl+Y" @click="editor.redo()">重做</el-button>
-    </el-button-group>
+      <div class="topbar-group topbar-group-io">
+        <el-dropdown
+          split-button
+          size="small"
+          trigger="click"
+          :disabled="!project.dirHandle"
+          title="解析图层为图片并生成 UI JSON"
+          @click="onImportPsd"
+          @command="onImportPsdRecent"
+        >
+          导入PSD
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="item in recents['import-psd']"
+                :key="item.id"
+                :command="item.id"
+              >
+                {{ item.name }}
+              </el-dropdown-item>
+              <el-dropdown-item v-if="!recents['import-psd'].length" disabled>
+                暂无最近路径
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-dropdown
+          split-button
+          size="small"
+          trigger="click"
+          :disabled="!editor.currentUIData"
+          title="按当前节点树导出 Photoshop 图层模版（名称/结构/显隐；图片层为占位图）"
+          @click="onExportPsdTemplate"
+          @command="onExportPsdTemplateRecent"
+        >
+          导出PSD模版
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="item in recents['export-psd-template']"
+                :key="item.id"
+                :command="item.id"
+              >
+                {{ item.name }}
+              </el-dropdown-item>
+              <el-dropdown-item v-if="!recents['export-psd-template'].length" disabled>
+                暂无最近路径
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-dropdown
+          split-button
+          size="small"
+          trigger="click"
+          :disabled="!editor.currentUIData || !project.dirHandle"
+          title="导出为 Cocos Creator 3.8 Prefab（含图片与 .meta）"
+          @click="onExportCocosPrefab"
+          @command="onExportCocosPrefabRecent"
+        >
+          导出Cocos Prefab
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="item in recents['export-prefab']"
+                :key="item.id"
+                :command="item.id"
+              >
+                {{ item.name }}
+              </el-dropdown-item>
+              <el-dropdown-item v-if="!recents['export-prefab'].length" disabled>
+                暂无最近路径
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
 
-    <div class="ml-auto flex items-center gap-3 text-xs text-zinc-500">
-      <span v-if="project.projectName" class="text-zinc-400">
+      <div class="topbar-group">
+        <el-button size="small" @click="libDialogVisible = true">编辑组件库</el-button>
+      </div>
+
+      <div class="topbar-group">
+        <el-button-group size="small">
+          <el-button :disabled="!editor.canUndo" title="Ctrl+Z" @click="editor.undo()">撤销</el-button>
+          <el-button :disabled="!editor.canRedo" title="Ctrl+Y" @click="editor.redo()">重做</el-button>
+        </el-button-group>
+      </div>
+    </nav>
+
+    <div
+      v-if="project.projectName || editor.currentFilePath || saveLabel"
+      class="topbar-status"
+    >
+      <span v-if="project.projectName" class="truncate" :title="project.projectName">
         项目：{{ project.projectName }}
       </span>
-      <span v-if="editor.currentFilePath" class="text-zinc-400">
+      <span v-if="editor.currentFilePath" class="truncate" :title="editor.currentFilePath">
         {{ editor.currentFilePath }}
       </span>
       <span
         v-if="saveLabel"
+        class="shrink-0"
         :class="editor.saveState === 'error' ? 'text-red-400' : 'text-emerald-500'"
       >
         {{ saveLabel }}
@@ -499,3 +519,69 @@ async function onExportCocosPrefabRecent(id: string) {
     </el-dialog>
   </header>
 </template>
+
+<style scoped>
+.topbar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #27272a;
+  background: #09090b;
+  user-select: none;
+}
+.topbar-logo {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #38bdf8;
+}
+.topbar-actions {
+  display: flex;
+  flex: 1 1 0%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+}
+.topbar-group {
+  display: inline-flex;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+.topbar-group:not(:first-child) {
+  padding-left: 10px;
+  box-shadow: -1px 0 0 #3f3f46;
+}
+.topbar-group-io {
+  flex-wrap: wrap;
+}
+.topbar-status {
+  display: flex;
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: min(18rem, 100%);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  color: #71717a;
+}
+.topbar-status span {
+  color: #a1a1aa;
+}
+@media (max-width: 1100px) {
+  .topbar :deep(.el-button) {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+</style>
+
