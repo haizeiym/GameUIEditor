@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExportProgress } from '../composables/useExportProgress'
 import { useProjectStore } from '../stores/project'
@@ -23,6 +23,7 @@ import {
   defaultTopbarLayout,
   loadTopbarLayout,
   saveTopbarLayout,
+  subscribeTopbarLayout,
 } from '../utils/topbarLayout'
 
 const project = useProjectStore()
@@ -44,6 +45,20 @@ const draftHeight = ref(768)
 const layout = ref<TopbarActionState[]>(loadTopbarLayout())
 const layoutDraft = ref<TopbarActionState[]>([])
 const dragFrom = ref<number | null>(null)
+let unsubscribeLayout: (() => void) | null = null
+
+onMounted(() => {
+  layout.value = loadTopbarLayout()
+  unsubscribeLayout = subscribeTopbarLayout((items) => {
+    layout.value = items
+  })
+  refreshRecents()
+})
+
+onUnmounted(() => {
+  unsubscribeLayout?.()
+  unsubscribeLayout = null
+})
 
 const visibleActionIds = computed(() =>
   layout.value.filter((item) => item.visible).map((item) => item.id),
@@ -55,8 +70,7 @@ function openLayoutDialog() {
 }
 
 function applyLayout() {
-  layout.value = layoutDraft.value.map((item) => ({ ...item }))
-  saveTopbarLayout(layout.value)
+  layout.value = saveTopbarLayout(layoutDraft.value.map((item) => ({ ...item })))
   layoutDialogVisible.value = false
 }
 
@@ -118,8 +132,6 @@ function refreshRecents() {
     'export-psd-template': listRecentIo('export-psd-template'),
   }
 }
-
-onMounted(refreshRecents)
 
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
@@ -595,7 +607,9 @@ async function onExportCocosPrefabRecent(id: string) {
     />
 
     <el-dialog v-model="layoutDialogVisible" title="顶栏按钮" width="440px">
-      <p class="mb-3 text-xs text-zinc-500">拖拽或上移/下移调整顺序；开关控制显示。刷新后仍生效。</p>
+      <p class="mb-3 text-xs text-zinc-500">
+        拖拽或上移/下移调整顺序；开关控制显示。确定后写入本机（刷新仍生效）；取消不保存。
+      </p>
       <div class="flex flex-col gap-1">
         <div
           v-for="(item, index) in layoutDraft"

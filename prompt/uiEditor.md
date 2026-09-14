@@ -236,9 +236,15 @@ trim；若结果为空 → "untitled"
 ### 3.1.2 顶栏按钮显隐与顺序（网页）
 用户可配置每个功能按钮的**显示/隐藏**与**左右顺序**。
 - 入口：【顶栏设置】（始终显示，避免全部隐藏后无法恢复）。Logo、状态文案、该入口本身不参与配置。
-- 列表支持拖拽或上移/下移改顺序；开关改显隐；【恢复默认】。
-- 存 `localStorage` 键 `uieditor.topbar-layout`；刷新后仍生效。仅网页。
+- 列表支持拖拽或上移/下移改顺序；开关改显隐；【恢复默认】只改对话框草稿，点【确定】后才生效并落盘。
 - 隐藏【撤销】/【重做】不影响 `Ctrl+Z` / `Ctrl+Y`。
+
+**持久化（必须，仅网页；CLI 不读写；不写项目目录）**：
+- 键：`localStorage` `uieditor.topbar-layout`。
+- 值：JSON 数组 `[{ "id": "<功能按钮 id>", "visible": true|false }, …]`，数组顺序 = 顶栏从左到右（换行后自上而下）顺序。
+- 写入：对话框【确定】。读出失败、无键、隐私模式禁止存储 → 全部显示、默认顺序，并 `console.warn`。
+- 规格新增按钮：已存列表没有的 `id` 追加到末尾且 `visible: true`。未知 `id` 丢弃。
+- 多标签页：其它标签写入同一键时，当前页应同步布局（`storage` 事件）。
 
 ## 3.2 左侧
 - **上：节点树**（`el-tree` + `draggable`）
@@ -492,7 +498,7 @@ uieditor --help
 10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。组节点仍为图层原名。
 11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
-13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新仍生效；【恢复默认】还原。
+13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 
