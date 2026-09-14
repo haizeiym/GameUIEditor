@@ -264,7 +264,7 @@ export const useEditorStore = defineStore('editor', () => {
       ],
     })
     const bytes = writePsdTemplateBytes(currentUIData.value)
-    await writeBinaryFile(handle, new Blob([bytes], { type: 'application/octet-stream' }))
+    await writeBinaryFile(handle, bytes)
   }
 
   /**
