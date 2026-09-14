@@ -2,8 +2,8 @@
  * 将当前 UI 节点树导出为 Photoshop 模版 PSD（结构 / 名称 / 显隐）。
  * 图片层不写入项目贴图，统一用占位像素，便于在 PS 里替换。
  *
- * 顺序：节点树自上而下 = children[0]…；PS 面板自上而下与之对齐。
- * ag-psd 的 children 是引擎顺序（底层在前），因此每层写入时 reverse。
+ * 顺序对齐画布叠层，不 reverse：children[0]=A 在最下，children[n]=C 在最上。
+ * ag-psd children 底层在前，写入 [A,B,C] → PS 面板自上而下 C→B→A。
  *
  * 在线 PS（Photopea / zaixianps）要求：
  * - 文档必须有 canvas 合成图
@@ -86,9 +86,7 @@ function nodeToLayer(node: UINode, parentAbsX: number, parentAbsY: number, docW:
 
   if (node.children.length > 0) {
     layer.opened = true
-    layer.children = node.children
-      .map((child) => nodeToLayer(child, absX, absY, docW, docH))
-      .reverse()
+    layer.children = node.children.map((child) => nodeToLayer(child, absX, absY, docW, docH))
     return layer
   }
 
@@ -101,7 +99,7 @@ function nodeToLayer(node: UINode, parentAbsX: number, parentAbsY: number, docW:
 export function buildPsdTemplate(root: UINode): Psd {
   const docW = Math.max(1, Math.round(root.width || 1))
   const docH = Math.max(1, Math.round(root.height || 1))
-  const nodeLayers = (root.children ?? []).map((child) => nodeToLayer(child, 0, 0, docW, docH)).reverse()
+  const nodeLayers = (root.children ?? []).map((child) => nodeToLayer(child, 0, 0, docW, docH))
 
   const background: Layer = {
     name: 'Background',

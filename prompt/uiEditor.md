@@ -420,7 +420,7 @@ uieditor --help
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
-8. 导出 PSD 模版：图层名=节点名；PS 面板顺序=节点树；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
+8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 
 ---
 
@@ -429,7 +429,7 @@ uieditor --help
 - 不强制图集（Atlas）、Widget 全屏（可选）。
 - 不支持无 File System Access API 的浏览器作为主路径（可提示换 Chrome/Edge）。
 - 不为「好看」改变 §五 / §六 的数值约定。
-- 导出 PSD **模版**不是 §五 的逆过程：不回写真实 `framePath` 像素，不保证再导入后 `children` 数组与导出前逐项相同（面板顺序以节点树为准，见 §10.3）。
+- 导出 PSD **模版**不是 §五 的逆过程：不回写真实 `framePath` 像素。叠层对齐画布（见 §10.3），不保证 PS 面板文字顺序与节点树自上而下相同。
 
 # 十、导出 PSD 模版（网页）
 
@@ -447,12 +447,17 @@ uieditor --help
 - 有 `OpacityComponent` 且规范后 `< 1` 时写 `layer.opacity`（规范同 §5.3：`>1` 则 `/255`，再 clamp 到 `[0,1]`）。
 
 ## 10.3 顺序（必须）
-节点树（`el-tree`）自上而下 = `children[0] → children[n]`。  
-PS 图层面板自上而下必须与之相同。
+对齐**画布叠层**，与 §5.4 / §3.3 一致：`children` 后添加在上。节点 `A → B → C`（数组序）= **C 最上层、A 最下层**。
 
-`ag-psd` 的 `children` 是引擎顺序（**底层在前**），因此**每一层**写入时对 `children` 做 `reverse`。例：节点树 `A → B → C`（A 在上）→ 写入 `[C, B, A]` → 面板显示 `A → B → C`。
+Photoshop 规则：图层面板**自上而下 = 从上到下遮挡**。因此面板不能也写成 A→B→C（那样 A 会盖住 C）。
 
-这与 §5.4「导入不 reverse」不同：导入对齐引擎绘制；本导出对齐**树的显示顺序**。
+写入 **不要 `reverse`**（`ag-psd` 的 `children` 已是底层在前）：
+
+| 节点 `children` | 写入 ag-psd | PS 面板自上而下 | 画布/PS 画面 |
+|---|---|---|---|
+| `A, B, C` | `[A, B, C]` | `C → B → A` | **C 最上，A 最下** |
+
+组内子节点同样按 `children` 原序写入。底层可另有 `Background`，仍在所有业务层之下。
 
 ## 10.4 坐标（§5.2 的逆）
 子节点坐标先累加为相对文档中心的绝对中心 `(absX, absY)`（Root 为 `(0,0)`），再：
