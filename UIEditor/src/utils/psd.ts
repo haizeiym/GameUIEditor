@@ -264,7 +264,7 @@ export async function parsePsdBuffer(
     })
     layerCount += 1
 
-    const node = createNode(name)
+    const node = createNode(fileName.replace(/\.png$/i, ''))
     node.active = !layer.hidden
     const t = psdRectToEditorTransform(rect.left, rect.top, rect.width, rect.height, docW, docH)
     node.x = t.x
