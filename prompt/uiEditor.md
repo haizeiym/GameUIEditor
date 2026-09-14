@@ -374,13 +374,16 @@ y = top  + height/2 - docH/2
 
 ## 6.2 资源与稳定 UUID
 - **只打包** JSON 中实际引用的 `SpriteComponent.framePath`；缺图失败并列出路径。
-- 普通 Sprite 复制到 `{out}/…/UI/`；**同一节点同时挂了 `LangSpriteComponent`** 时，该节点的 Sprite 图复制到 `{out}/…/UI/zh/`（文件名仍按 §5.6）。同一 `framePath` 既被 LangSprite 节点又被普通 Sprite 节点引用时，两处各写一份、UUID 不同。
-- Prefab 内必须用 SpriteFrame UUID（`{uuid}@f9941`），禁止写入路径字符串。LangSprite 节点的 `cc.Sprite` 引用 `UI/zh` 那份 UUID。
+- 普通 Sprite 复制到 `{out}/…/UI/`。**任意节点**对该 `framePath` 挂了 `LangSpriteComponent` 时，该图只写到 `{out}/…/UI/zh/`（文件名仍按 §5.6）。每个 `framePath` **只写一份**，禁止 UI/ 与 UI/zh 各一份。
+- 进 `UI/zh` **必须换 UUID**（种子见下）。导出 Prefab 时所有引用该 `framePath` 的 `cc.Sprite._spriteFrame` **重绑**为 `{新uuid}@f9941`，禁止再指向 UI/ 旧 UUID。
+- Prefab 内必须用 SpriteFrame UUID（`{uuid}@f9941`），禁止写入路径字符串。同一 `framePath` 只对应一份资源、一个 UUID。
 - 子 meta key：texture `6c48a`，sprite-frame `f9941`。
-- **稳定 UUID**：由种子字符串（建议含「导出包内相对资源身份」，如同名导出路径）经可复现哈希生成 RFC 风格 UUID；**同路径多次导出 UUID 不变**。推荐算法（可原样实现）：
+- **稳定 UUID**：由种子字符串经可复现哈希生成 RFC 风格 UUID；同一种子多次导出不变。推荐算法（可原样实现）：
   - FNV-1a 32-bit 多轮混合扩展为 128-bit hex
   - 写入 version/variant 位后格式化为 `8-4-4-4-12`
-  - `UI/` 图种子：`cocos-image:{项目相对路径}`；`UI/zh/` 图种子：`cocos-image:UI/zh:{项目相对路径}`
+  - `UI/` 图种子：`cocos-image:{项目相对路径}`（不改）
+  - `UI/zh/` 图种子：`cocos-image:UI/zh:{项目相对路径}`（与 UI/ 不同，导出时按新 UUID 重绑 Prefab）
+- 覆盖导出必须先删除旧包目录，避免 `UI/` 残留旧 UUID 与 `UI/zh/` 新文件冲突。
 - **compressUuid**（自定义脚本 `__type__`）：去连字符的 32 hex；保留前 5 位 hex，其余每 3 hex → 2 字符（字母表 `A–Za–z0–9+/`），得到 23 字符。与 `.ts.meta` 的 uuid 对应。
 
 ## 6.3 节点映射
@@ -393,7 +396,7 @@ y = top  + height/2 - docH/2
 - `SimpleListComponent` → 同节点先挂 `cc.ScrollView`（`horizontal`/`vertical` 取自属性），再按 `scriptUuid`（可由 `scriptPath` 对应 `.meta` 自动填充）绑定自定义脚本；`ScrollView._content` 指向 `viewNode`（默认 `view/content`）。添加组件时自动创建子节点 `view` → `content`。导出时名为 `view` 的子节点自动挂 `cc.Mask`。
 - `ButtonComponent` → `cc.Button`：`transition` 见 §6.4；`target` 为 `node` 引用（`.` / 空 / 本节点名 → 自身，`_target` 指向本节点 `__id__`；否则相对子孙路径）。`clickEvents` 为空（运行时 BindUI 绑定）。
 - **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
-- `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 节点的图片目录见 §6.2。
+- `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 额外写入 `_langPath: "UI"`、`_bundleName` = 包名、`_langKey` = 导出图 stem，运行时加载 `UI/{lang}/{key}`。图片目录见 §6.2。
 - 无上述组件则仅 Node + UITransform。
 - 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本|Button|Lang 脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
 - 子节点顺序 = JSON `children` 原序。
@@ -480,7 +483,7 @@ uieditor --help
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新仍生效；【恢复默认】还原。
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
-15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，普通 Sprite 仍在 `{pack}/UI/`。
+15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 
 ---
 

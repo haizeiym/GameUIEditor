@@ -4,7 +4,7 @@ import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { Orientation, UINode } from '../types'
 import { exportCocosPrefab, pathExists } from '../utils/cocosPrefab'
 import type { OnExportProgress } from '../utils/exportProgress'
-import { readTextFile, writeBinaryFile, writeTextFile } from '../utils/fs'
+import { readTextFile, removeEntryByPath, writeBinaryFile, writeTextFile } from '../utils/fs'
 import { writePsdTemplateBytes } from '../utils/psdExport'
 import {
   latestRecentHandle,
@@ -307,6 +307,11 @@ export const useEditorStore = defineStore('editor', () => {
     if (await pathExists(exportRoot, baseName)) {
       const ok = confirmOverwrite ? await confirmOverwrite(baseName) : true
       if (!ok) return null
+      try {
+        await removeEntryByPath(exportRoot, baseName)
+      } catch (err) {
+        console.warn(`[editor] 覆盖导出时删除旧包失败：${String(err)}`)
+      }
     }
 
     const result = await exportCocosPrefab({
