@@ -17,6 +17,13 @@ import {
 } from '../utils/recentIoPaths'
 import ComponentLibDialog from './ComponentLibDialog.vue'
 import ExportProgressDialog from './ExportProgressDialog.vue'
+import {
+  type TopbarActionState,
+  TOPBAR_ACTION_LABELS,
+  defaultTopbarLayout,
+  loadTopbarLayout,
+  saveTopbarLayout,
+} from '../utils/topbarLayout'
 
 const project = useProjectStore()
 const editor = useEditorStore()
@@ -31,8 +38,58 @@ const {
 } = useExportProgress()
 const libDialogVisible = ref(false)
 const resolutionDialogVisible = ref(false)
+const layoutDialogVisible = ref(false)
 const draftWidth = ref(1366)
 const draftHeight = ref(768)
+const layout = ref<TopbarActionState[]>(loadTopbarLayout())
+const layoutDraft = ref<TopbarActionState[]>([])
+const dragFrom = ref<number | null>(null)
+
+const visibleActionIds = computed(() =>
+  layout.value.filter((item) => item.visible).map((item) => item.id),
+)
+
+function openLayoutDialog() {
+  layoutDraft.value = layout.value.map((item) => ({ ...item }))
+  layoutDialogVisible.value = true
+}
+
+function applyLayout() {
+  layout.value = layoutDraft.value.map((item) => ({ ...item }))
+  saveTopbarLayout(layout.value)
+  layoutDialogVisible.value = false
+}
+
+function resetLayoutDraft() {
+  layoutDraft.value = defaultTopbarLayout()
+}
+
+function moveDraft(index: number, dir: -1 | 1) {
+  const nextIndex = index + dir
+  if (nextIndex < 0 || nextIndex >= layoutDraft.value.length) return
+  const next = layoutDraft.value.slice()
+  const current = next[index]
+  const swap = next[nextIndex]
+  if (!current || !swap) return
+  next[index] = swap
+  next[nextIndex] = current
+  layoutDraft.value = next
+}
+
+function onLayoutDragStart(index: number) {
+  dragFrom.value = index
+}
+
+function onLayoutDrop(to: number) {
+  const from = dragFrom.value
+  dragFrom.value = null
+  if (from == null || from === to) return
+  const next = layoutDraft.value.slice()
+  const [row] = next.splice(from, 1)
+  if (!row) return
+  next.splice(to, 0, row)
+  layoutDraft.value = next
+}
 
 const saveLabel = computed(() => {
   switch (editor.saveState) {
@@ -350,38 +407,56 @@ async function onExportCocosPrefabRecent(id: string) {
     <span class="topbar-logo">UI Editor</span>
 
     <nav class="topbar-actions">
-      <div class="topbar-group">
-        <el-button-group size="small">
-          <el-button @click="onNewProject">新建项目</el-button>
-          <el-button @click="onImportProject">导入项目</el-button>
-        </el-button-group>
-      </div>
-
-      <div class="topbar-group">
-        <el-button-group size="small">
-          <el-button :disabled="!project.dirHandle" @click="onNewUIFile">新建UI界面</el-button>
-          <el-button @click="onImportUIFile">导入UI界面</el-button>
-          <el-button :disabled="!editor.currentUIData" @click="onExportUIFile">导出UI界面</el-button>
-        </el-button-group>
-      </div>
-
-      <div class="topbar-group">
-        <el-button-group size="small">
-          <el-button
-            :disabled="!editor.currentUIData"
-            :title="`当前：${editor.orientation === 'landscape' ? '横屏' : '竖屏'}`"
-            @click="onToggleOrientation"
-          >
-            切换横竖屏
-          </el-button>
-          <el-button :title="editor.resolutionLabel" @click="openResolutionDialog">
-            设置分辨率
-          </el-button>
-        </el-button-group>
-      </div>
-
-      <div class="topbar-group topbar-group-io">
+      <template v-for="id in visibleActionIds" :key="id">
+        <el-button v-if="id === 'new-project'" size="small" class="topbar-item" @click="onNewProject">
+          新建项目
+        </el-button>
+        <el-button v-else-if="id === 'import-project'" size="small" class="topbar-item" @click="onImportProject">
+          导入项目
+        </el-button>
+        <el-button
+          v-else-if="id === 'new-ui'"
+          size="small"
+          class="topbar-item"
+          :disabled="!project.dirHandle"
+          @click="onNewUIFile"
+        >
+          新建UI界面
+        </el-button>
+        <el-button v-else-if="id === 'import-ui'" size="small" class="topbar-item" @click="onImportUIFile">
+          导入UI界面
+        </el-button>
+        <el-button
+          v-else-if="id === 'export-ui'"
+          size="small"
+          class="topbar-item"
+          :disabled="!editor.currentUIData"
+          @click="onExportUIFile"
+        >
+          导出UI界面
+        </el-button>
+        <el-button
+          v-else-if="id === 'toggle-orientation'"
+          size="small"
+          class="topbar-item"
+          :disabled="!editor.currentUIData"
+          :title="`当前：${editor.orientation === 'landscape' ? '横屏' : '竖屏'}`"
+          @click="onToggleOrientation"
+        >
+          切换横竖屏
+        </el-button>
+        <el-button
+          v-else-if="id === 'set-resolution'"
+          size="small"
+          class="topbar-item"
+          :title="editor.resolutionLabel"
+          @click="openResolutionDialog"
+        >
+          设置分辨率
+        </el-button>
         <el-dropdown
+          v-else-if="id === 'import-psd'"
+          class="topbar-item"
           split-button
           size="small"
           trigger="click"
@@ -407,6 +482,8 @@ async function onExportCocosPrefabRecent(id: string) {
           </template>
         </el-dropdown>
         <el-dropdown
+          v-else-if="id === 'export-psd-template'"
+          class="topbar-item"
           split-button
           size="small"
           trigger="click"
@@ -432,6 +509,8 @@ async function onExportCocosPrefabRecent(id: string) {
           </template>
         </el-dropdown>
         <el-dropdown
+          v-else-if="id === 'export-prefab'"
+          class="topbar-item"
           split-button
           size="small"
           trigger="click"
@@ -456,19 +535,40 @@ async function onExportCocosPrefabRecent(id: string) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-      </div>
-
-      <div class="topbar-group">
-        <el-button size="small" @click="libDialogVisible = true">编辑组件库</el-button>
-      </div>
-
-      <div class="topbar-group">
-        <el-button-group size="small">
-          <el-button :disabled="!editor.canUndo" title="Ctrl+Z" @click="editor.undo()">撤销</el-button>
-          <el-button :disabled="!editor.canRedo" title="Ctrl+Y" @click="editor.redo()">重做</el-button>
-        </el-button-group>
-      </div>
+        <el-button
+          v-else-if="id === 'edit-components'"
+          size="small"
+          class="topbar-item"
+          @click="libDialogVisible = true"
+        >
+          编辑组件库
+        </el-button>
+        <el-button
+          v-else-if="id === 'undo'"
+          size="small"
+          class="topbar-item"
+          :disabled="!editor.canUndo"
+          title="Ctrl+Z"
+          @click="editor.undo()"
+        >
+          撤销
+        </el-button>
+        <el-button
+          v-else-if="id === 'redo'"
+          size="small"
+          class="topbar-item"
+          :disabled="!editor.canRedo"
+          title="Ctrl+Y"
+          @click="editor.redo()"
+        >
+          重做
+        </el-button>
+      </template>
     </nav>
+
+    <el-button size="small" class="topbar-settings" title="显示、隐藏与排列顶栏按钮" @click="openLayoutDialog">
+      顶栏设置
+    </el-button>
 
     <div
       v-if="project.projectName || editor.currentFilePath || saveLabel"
@@ -500,6 +600,39 @@ async function onExportCocosPrefabRecent(id: string) {
       :total="exportProgressTotal"
     />
 
+    <el-dialog v-model="layoutDialogVisible" title="顶栏按钮" width="440px">
+      <p class="mb-3 text-xs text-zinc-500">拖拽或上移/下移调整顺序；开关控制显示。刷新后仍生效。</p>
+      <div class="flex flex-col gap-1">
+        <div
+          v-for="(item, index) in layoutDraft"
+          :key="item.id"
+          class="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-800"
+          :class="dragFrom === index ? 'opacity-50' : ''"
+          draggable="true"
+          @dragstart="onLayoutDragStart(index)"
+          @dragover.prevent
+          @drop="onLayoutDrop(index)"
+        >
+          <span class="w-4 cursor-grab text-center text-zinc-500" title="拖拽排序">⋮⋮</span>
+          <span class="min-w-0 flex-1 truncate text-sm">{{ TOPBAR_ACTION_LABELS[item.id] }}</span>
+          <el-switch v-model="item.visible" size="small" />
+          <el-button size="small" :disabled="index === 0" @click="moveDraft(index, -1)">上移</el-button>
+          <el-button
+            size="small"
+            :disabled="index === layoutDraft.length - 1"
+            @click="moveDraft(index, 1)"
+          >
+            下移
+          </el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="resetLayoutDraft">恢复默认</el-button>
+        <el-button size="small" @click="layoutDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" @click="applyLayout">确定</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="resolutionDialogVisible" title="设置分辨率" width="360px">
       <div class="flex flex-col gap-3">
         <div class="flex items-center gap-2">
@@ -525,7 +658,7 @@ async function onExportCocosPrefabRecent(id: string) {
   display: flex;
   flex-shrink: 0;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-height: 44px;
   padding: 6px 12px;
@@ -534,7 +667,10 @@ async function onExportCocosPrefabRecent(id: string) {
   user-select: none;
 }
 .topbar-logo {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  height: 24px;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -545,22 +681,29 @@ async function onExportCocosPrefabRecent(id: string) {
   flex: 1 1 0%;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  align-content: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
   min-width: 0;
 }
-.topbar-group {
+.topbar-item {
   display: inline-flex;
   flex-shrink: 0;
-  flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
+  height: 24px;
+  margin: 0;
+  vertical-align: middle;
 }
-.topbar-group:not(:first-child) {
-  padding-left: 10px;
-  box-shadow: -1px 0 0 #3f3f46;
+.topbar-actions :deep(.el-button) {
+  margin: 0;
 }
-.topbar-group-io {
-  flex-wrap: wrap;
+.topbar-actions :deep(.el-dropdown) {
+  vertical-align: middle;
+}
+.topbar-settings {
+  flex-shrink: 0;
+  height: 24px;
+  margin: 0;
 }
 .topbar-status {
   display: flex;
@@ -568,6 +711,7 @@ async function onExportCocosPrefabRecent(id: string) {
   min-width: 0;
   max-width: min(18rem, 100%);
   align-items: center;
+  align-self: center;
   justify-content: flex-end;
   gap: 8px;
   overflow: hidden;
@@ -584,4 +728,5 @@ async function onExportCocosPrefabRecent(id: string) {
   }
 }
 </style>
+
 
