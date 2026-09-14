@@ -15,7 +15,7 @@ import {
 } from './fs'
 import { uniqueImageFileName, toExportBaseName } from './imageFileName'
 import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
-import { findDescendantByPath, resolveScriptBindField } from './uiNode'
+import { findDescendantByPath, resolveNodeRef, resolveScriptBindField } from './uiNode'
 
 const UI_2D_LAYER = 1073741824
 const TEXTURE_SUB = '6c48a'
@@ -162,7 +162,7 @@ function resolveButtonSource(node: UINode): Record<string, unknown> | null {
   const existing = node.components['ButtonComponent']
   if (existing) return existing
   if (nodeNameStartsWithBtn(node.name || '')) {
-    return { target: '', transition: 'SCALE' }
+    return { target: '.', transition: 'SCALE' }
   }
   return null
 }
@@ -278,19 +278,43 @@ function toOpacity255(v: unknown): number {
   return Math.round(Math.min(Math.max(v, 0), 255))
 }
 
-export function collectFramePaths(root: UINode): string[] {
-  const set = new Set<string>()
+export type SpriteExportSubdir = 'UI' | 'UI/zh'
+
+export interface ImageExportJob {
+  sourcePath: string
+  subdir: SpriteExportSubdir
+}
+
+export function spriteExportKey(framePath: string, langZh: boolean): string {
+  return `${langZh ? 'UI/zh' : 'UI'}::${framePath}`
+}
+
+export function collectImageExportJobs(root: UINode): ImageExportJob[] {
+  const jobs: ImageExportJob[] = []
+  const seen = new Set<string>()
   const walk = (n: UINode) => {
     const sprite = n.components['SpriteComponent']
     const path = sprite?.framePath
     if (typeof path === 'string') {
       const trimmed = path.trim()
-      if (trimmed) set.add(trimmed)
+      if (trimmed) {
+        const langZh = Boolean(n.components['LangSpriteComponent'])
+        const subdir: SpriteExportSubdir = langZh ? 'UI/zh' : 'UI'
+        const key = spriteExportKey(trimmed, langZh)
+        if (!seen.has(key)) {
+          seen.add(key)
+          jobs.push({ sourcePath: trimmed, subdir })
+        }
+      }
     }
     n.children.forEach(walk)
   }
   walk(root)
-  return [...set]
+  return jobs
+}
+
+export function collectFramePaths(root: UINode): string[] {
+  return [...new Set(collectImageExportJobs(root).map((j) => j.sourcePath))]
 }
 
 function uniqueFileName(used: Set<string>, sourcePath: string): string {
@@ -611,7 +635,10 @@ export function buildPrefabObjects(
     const sprite = node.components['SpriteComponent']
     if (sprite) {
       const framePath = typeof sprite.framePath === 'string' ? sprite.framePath.trim() : ''
-      const spriteUuid = framePath ? framePathToSpriteUuid.get(framePath) : undefined
+      const langZh = Boolean(node.components['LangSpriteComponent'])
+      const spriteUuid = framePath
+        ? framePathToSpriteUuid.get(spriteExportKey(framePath, langZh))
+        : undefined
       const type = resolveSpriteType(sprite.type)
       const sizeMode = resolveSizeMode(sprite.sizeMode)
       const c = parseColor(sprite.color)
@@ -786,8 +813,7 @@ export function buildPrefabObjects(
 
     const buttonSrc = resolveButtonSource(node)
     if (buttonSrc) {
-      const targetPath = typeof buttonSrc.target === 'string' ? buttonSrc.target.trim() : ''
-      const targetUI = targetPath ? findDescendantByPath(node, targetPath) : null
+      const targetUI = resolveNodeRef(node, buttonSrc.target)
       const targetPrefabId = targetUI ? uiIdToPrefabId.get(targetUI._id) : undefined
       const btnId = objects.length
       objects.push({
@@ -811,7 +837,7 @@ export function buildPrefabObjects(
         _disabledSprite: null,
         _duration: 0.1,
         _zoomScale: 1.2,
-        _target: targetPrefabId != null ? { __id__: targetPrefabId } : null,
+        _target: { __id__: targetPrefabId ?? nodeId },
         _id: '',
       })
       objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
@@ -910,45 +936,56 @@ export async function pathExists(
 
 /**
  * IO 无关的 Prefab 导出核心：写出
- * `{baseName}/UI/*` + `{baseName}/{baseName}.prefab` + `{baseName}.ts` + 各级 .meta
+ * `{baseName}/UI/*`（LangSprite 节点图片在 `{baseName}/UI/zh/*`）
+ * + `{baseName}/{baseName}.prefab` + `{baseName}.ts` + 各级 .meta
  */
 export async function exportCocosPrefabCore(
   options: CocosPrefabExportCoreOptions,
 ): Promise<CocosPrefabExportResult> {
   const { root, readImageBytes, fs } = options
   const baseName = toExportBaseName(options.baseName)
-  const framePaths = collectFramePaths(root)
+  const jobs = collectImageExportJobs(root)
+  const uniqueSources = [...new Set(jobs.map((j) => j.sourcePath))]
   const missing: string[] = []
-  const usedNames = new Set<string>()
-  const pathToExportName = new Map<string, string>()
-  const pathToUuid = new Map<string, string>()
+  const usedNamesByDir = new Map<string, Set<string>>()
+  const jobKeyToUuid = new Map<string, string>()
   const pathToBytes = new Map<string, Uint8Array>()
   /** 与 `.ts.meta` / Prefab 根脚本组件共用 */
   const scriptUuid = stableUuid(`cocos-ts:${baseName}`)
 
-  const imageN = framePaths.length
-  // prepare + 读图 N + 写目录 + 写图 N + prefab + script + done
-  const totalSteps = 1 + imageN + 1 + imageN + 1 + 1 + 1
+  const readN = uniqueSources.length
+  const writeN = jobs.length
+  // prepare + 读图 + 写目录 + 写图 + prefab + script + done
+  const totalSteps = 1 + readN + 1 + writeN + 1 + 1 + 1
   const report = createExportProgressReporter('cocos', totalSteps, options.onProgress)
 
   await report('prepare', `准备导出「${baseName}」…`)
 
-  for (let i = 0; i < framePaths.length; i++) {
-    const path = framePaths[i]!
-    await report('read-images', `读取图片（${i + 1}/${imageN}）：${path}`)
+  for (let i = 0; i < uniqueSources.length; i++) {
+    const path = uniqueSources[i]!
+    await report('read-images', `读取图片（${i + 1}/${readN}）：${path}`)
     const bytes = await readImageBytes(path)
     if (!bytes) {
       missing.push(path)
       continue
     }
     pathToBytes.set(path, bytes)
-    pathToExportName.set(path, uniqueFileName(usedNames, path))
-    pathToUuid.set(path, stableUuid(`cocos-image:${path}`))
   }
 
   if (missing.length) {
     throw new Error(`缺少图片资源：\n${missing.join('\n')}`)
   }
+
+  const usedNames = (subdir: string): Set<string> => {
+    let set = usedNamesByDir.get(subdir)
+    if (!set) {
+      set = new Set()
+      usedNamesByDir.set(subdir, set)
+    }
+    return set
+  }
+
+  const hasZh = jobs.some((j) => j.subdir === 'UI/zh')
 
   await report('write-images', '写入目录元数据…')
   await fs.writeText(
@@ -959,20 +996,31 @@ export async function exportCocosPrefabCore(
     `${baseName}/UI.meta`,
     `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`)), null, 2)}\n`,
   )
+  if (hasZh) {
+    await fs.writeText(
+      `${baseName}/UI/zh.meta`,
+      `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI/zh`)), null, 2)}\n`,
+    )
+  }
 
-  for (let i = 0; i < framePaths.length; i++) {
-    const path = framePaths[i]!
-    const bytes = pathToBytes.get(path)!
-    const exportName = pathToExportName.get(path)!
-    const uuid = pathToUuid.get(path)!
+  for (let i = 0; i < jobs.length; i++) {
+    const job = jobs[i]!
+    const bytes = pathToBytes.get(job.sourcePath)!
+    const exportName = uniqueFileName(usedNames(job.subdir), job.sourcePath)
+    const uuidSeed =
+      job.subdir === 'UI'
+        ? `cocos-image:${job.sourcePath}`
+        : `cocos-image:${job.subdir}:${job.sourcePath}`
+    const uuid = stableUuid(uuidSeed)
+    jobKeyToUuid.set(spriteExportKey(job.sourcePath, job.subdir === 'UI/zh'), uuid)
     const { width, height } = readImageSizeFromBytes(bytes)
     const displayName = exportName.replace(/\.[^.]+$/, '')
     const fileExt = extForMeta(exportName)
 
-    await report('write-images', `写出图片（${i + 1}/${imageN}）：${exportName}`)
-    await fs.writeBinary(`${baseName}/UI/${exportName}`, bytes)
+    await report('write-images', `写出图片（${i + 1}/${writeN}）：${job.subdir}/${exportName}`)
+    await fs.writeBinary(`${baseName}/${job.subdir}/${exportName}`, bytes)
     await fs.writeText(
-      `${baseName}/UI/${exportName}.meta`,
+      `${baseName}/${job.subdir}/${exportName}.meta`,
       `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt), null, 2)}\n`,
     )
   }
@@ -980,7 +1028,7 @@ export async function exportCocosPrefabCore(
   await report('write-prefab', `生成 Prefab：${baseName}.prefab`)
   const prefabObjects = buildPrefabObjects(
     root,
-    pathToUuid,
+    jobKeyToUuid,
     baseName,
     scriptUuid,
     options.componentDefs,
@@ -1008,7 +1056,7 @@ export async function exportCocosPrefabCore(
   return {
     baseName,
     prefabPath: `${baseName}/${baseName}.prefab`,
-    imageCount: framePaths.length,
+    imageCount: jobs.length,
   }
 }
 

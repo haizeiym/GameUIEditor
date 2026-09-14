@@ -144,6 +144,13 @@ export const useProjectStore = defineStore('project', () => {
           changed = true
         }
       }
+      if (name === 'ButtonComponent') {
+        const target = curProps.target
+        if (target && (target.type !== 'node' || target.default !== '.')) {
+          curProps.target = { ...target, type: 'node', default: '.' }
+          changed = true
+        }
+      }
       if (name === 'SimpleListComponent') {
         for (const drop of ['itemPrefab', 'itemNode', 'isSetUUID'] as const) {
           if (drop in curProps) {

@@ -173,6 +173,8 @@ export function defaultValueForProp(def: PropDef): unknown {
       }
       return opts[0]?.value ?? null
     }
+    case 'node':
+      return typeof def.default === 'string' ? def.default : '.'
     default:
       return def.default ?? null
   }
@@ -187,12 +189,42 @@ export function createComponentData(def: ComponentDef): Record<string, unknown> 
   return data
 }
 
+/** 节点引用下拉项：`.` = 当前节点，其余为相对本节点的子路径 */
+export interface NodeRefOption {
+  label: string
+  value: string
+}
+
+export function collectNodeRefOptions(host: UINode): NodeRefOption[] {
+  const out: NodeRefOption[] = [{ label: `${host.name} (当前)`, value: '.' }]
+  const walk = (n: UINode, prefix: string) => {
+    for (const child of n.children) {
+      const path = prefix ? `${prefix}/${child.name}` : child.name
+      out.push({ label: path, value: path })
+      walk(child, path)
+    }
+  }
+  walk(host, '')
+  return out
+}
+
+/**
+ * 解析 Button.target 等节点引用。
+ * `.` / 空 / 与本节点同名 → 自身；否则按相对路径或子树名查找。
+ */
+export function resolveNodeRef(host: UINode, pathOrName: unknown): UINode | null {
+  if (typeof pathOrName !== 'string') return host
+  const raw = pathOrName.trim()
+  if (!raw || raw === '.' || raw === host.name) return host
+  return findDescendantByPath(host, raw)
+}
+
 /** 根据相对路径（如 view/content）或节点名在子树中查找 */
 export function findDescendantByPath(root: UINode, pathOrName: string): UINode | null {
   const raw = pathOrName.trim()
-  if (!raw) return null
+  if (!raw || raw === '.') return root
   const parts = raw.split('/').filter(Boolean)
-  if (parts.length === 0) return null
+  if (parts.length === 0) return root
 
   let cur: UINode = root
   for (const part of parts) {

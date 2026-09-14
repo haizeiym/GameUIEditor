@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
-import { canAddComponent } from '../utils/node'
+import { canAddComponent, collectNodeRefOptions } from '../utils/node'
 import {
   resolveScriptMetaUuid,
   scriptPathFromDrop,
@@ -16,6 +16,7 @@ const project = useProjectStore()
 
 const node = computed(() => editor.selectedNode)
 const mountedComponents = computed(() => Object.keys(node.value?.components ?? {}))
+const nodeRefOptions = computed(() => (node.value ? collectNodeRefOptions(node.value) : []))
 /** 同名不可重复；相同 componentType 也不可重复 */
 const availableComponents = computed(() => {
   if (!node.value) return []
@@ -267,6 +268,7 @@ function onPropCommit(type: string, propName: string) {
                       v-model="node.components[type][propName]"
                       :def="propDef"
                       :drop-target="dropTargetFor(type, String(propName))"
+                      :node-options="propDef.type === 'node' ? nodeRefOptions : undefined"
                       @script-drop="onScriptDrop(type, $event)"
                       @commit="onPropCommit(type, String(propName))"
                     />

@@ -1,3 +1,4 @@
+import { ElMessage } from 'element-plus'
 import { defineStore } from 'pinia'
 import { computed, nextTick, ref, shallowRef, watch } from 'vue'
 import type { Orientation, UINode } from '../types'
@@ -373,6 +374,22 @@ export const useEditorStore = defineStore('editor', () => {
 
   // ---------- 组件操作 ----------
 
+  function ensureCompanionComponent(node: UINode, companion: string) {
+    if (node.components[companion]) return
+    const defs = project.componentDefs
+    const companionDef = defs[companion]
+    if (!companionDef) {
+      console.warn(`[editor] 无法自动添加 ${companion}：组件库中没有定义`)
+      return
+    }
+    if (!canAddComponent(node, companion, defs)) {
+      console.warn(`[editor] 无法自动添加 ${companion}：与已有组件互斥`)
+      ElMessage.warning(`无法自动添加 ${companion}：与已有组件互斥`)
+      return
+    }
+    node.components[companion] = createComponentData(companionDef)
+  }
+
   function addComponent(nodeId: string, type: string) {
     const node = findNodeById(currentUIData.value, nodeId)
     const def = project.componentDefs[type]
@@ -380,6 +397,15 @@ export const useEditorStore = defineStore('editor', () => {
     node.components[type] = createComponentData(def)
     if (type === 'SimpleListComponent') {
       ensureSimpleListHierarchy(node)
+    }
+    if (type === 'ButtonComponent') {
+      node.components[type]!.target = '.'
+    }
+    if (type === 'LangSpriteComponent') {
+      ensureCompanionComponent(node, 'SpriteComponent')
+    }
+    if (type === 'LangLabelComponent') {
+      ensureCompanionComponent(node, 'LabelComponent')
     }
     commit()
   }

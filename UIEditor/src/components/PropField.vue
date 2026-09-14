@@ -8,6 +8,8 @@ const props = defineProps<{
   modelValue: unknown
   /** 资源拖放：图片路径 / 脚本路径 */
   dropTarget?: 'image' | 'script' | boolean
+  /** type=node 时的节点下拉（`.` = 当前节点） */
+  nodeOptions?: { label: string; value: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -92,6 +94,23 @@ const placeholder = computed(() => {
     return '拖入 .ts 或 .ts.meta；Mac 上可再选同目录 .meta 文件'
   return ''
 })
+
+const nodeValue = computed({
+  get: () => {
+    const v = typeof props.modelValue === 'string' ? props.modelValue.trim() : ''
+    return v === '' ? '.' : v
+  },
+  set: (v: string) => emit('update:modelValue', v || '.'),
+})
+
+const nodeSelectOptions = computed(() => {
+  const opts = props.nodeOptions ?? []
+  const v = nodeValue.value
+  if (v && !opts.some((o) => o.value === v)) {
+    return [{ label: v, value: v }, ...opts]
+  }
+  return opts
+})
 </script>
 
 <template>
@@ -150,6 +169,24 @@ const placeholder = computed(() => {
     color-format="hex"
     @change="emit('commit')"
   />
+
+  <!-- node：当前节点 + 子孙路径 -->
+  <el-select
+    v-else-if="def.type === 'node'"
+    v-model="nodeValue"
+    size="small"
+    class="w-full!"
+    filterable
+    :teleported="true"
+    @change="emit('commit')"
+  >
+    <el-option
+      v-for="opt in nodeSelectOptions"
+      :key="opt.value"
+      :label="opt.label"
+      :value="opt.value"
+    />
+  </el-select>
 
   <!-- v2 -->
   <div v-else-if="def.type === 'v2'" class="flex gap-1">

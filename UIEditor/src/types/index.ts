@@ -18,7 +18,7 @@ export interface UINode {
 }
 
 /** components.json 中支持的属性类型 */
-export type PropType = 'string' | 'number' | 'boolean' | 'color' | 'v2' | 'enum'
+export type PropType = 'string' | 'number' | 'boolean' | 'color' | 'v2' | 'enum' | 'node'
 
 export interface EnumOption {
   label: string

@@ -5,6 +5,7 @@
 export {
   canAddComponent,
   cloneWithNewIds,
+  collectNodeRefOptions,
   createComponentData,
   createDefaultUIData,
   createNode,
@@ -18,6 +19,7 @@ export {
   normalizeUIData,
   parseComponentDefs,
   parseVec2,
+  resolveNodeRef,
   resolveScriptBindField,
   serializeForDisk,
 } from './uiNode'
@@ -151,7 +153,7 @@ const FALLBACK_COMPONENTS_JSON = `{
   },
   "ButtonComponent": {
     "properties": {
-      "target": { "type": "string", "default": "", "displayName": "目标节点" },
+      "target": { "type": "node", "default": ".", "displayName": "目标节点" },
       "transition": {
         "type": "enum",
         "default": "SCALE",
