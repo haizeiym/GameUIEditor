@@ -381,8 +381,8 @@ y = top  + height/2 - docH/2
 - **稳定 UUID**：由种子字符串经可复现哈希生成 RFC 风格 UUID；同一种子多次导出不变。推荐算法（可原样实现）：
   - FNV-1a 32-bit 多轮混合扩展为 128-bit hex
   - 写入 version/variant 位后格式化为 `8-4-4-4-12`
-  - `UI/` 图种子：`cocos-image:{项目相对路径}`（不改）
-  - `UI/zh/` 图种子：`cocos-image:UI/zh:{项目相对路径}`（与 UI/ 不同，导出时按新 UUID 重绑 Prefab）
+  - `UI/` 图种子：`cocos-image:{项目相对路径}`（不改；UUID version 5，与现网一致）
+  - `UI/zh/` 图种子：`cocos-image:UI/zh:{项目相对路径}`（UUID version **4**，与 Creator 原生资源一致）；`.meta` 的 `imported` 必须为 **false**（含 `UI/zh.meta`、该图、以及此时的 `UI.meta` / Prefab.meta），让资源库立刻按给定 UUID 导入。先写图片再写 `zh.meta`。禁止 `imported: true` 却无 `library/` 缓存，否则编辑器要手动刷新才显示。
 - 覆盖导出必须先删除旧包目录，避免 `UI/` 残留旧 UUID 与 `UI/zh/` 新文件冲突。
 - **compressUuid**（自定义脚本 `__type__`）：去连字符的 32 hex；保留前 5 位 hex，其余每 3 hex → 2 字符（字母表 `A–Za–z0–9+/`），得到 23 字符。与 `.ts.meta` 的 uuid 对应。
 

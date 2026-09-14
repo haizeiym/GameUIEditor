@@ -200,9 +200,10 @@ export function resolveComponentScriptUuid(def: ComponentDef | undefined): strin
 }
 
 /** 由字符串种子生成稳定 UUID（同路径多次导出保持不变） */
-export function stableUuid(seed: string): string {
+export function stableUuid(seed: string, version: 4 | 5 = 5): string {
   const hex = fnv1aHex(seed).padEnd(32, '0').slice(0, 32)
-  const b12 = ((parseInt(hex.slice(12, 16), 16) & 0x0fff) | 0x5000).toString(16).padStart(4, '0')
+  const verBits = version === 4 ? 0x4000 : 0x5000
+  const b12 = ((parseInt(hex.slice(12, 16), 16) & 0x0fff) | verBits).toString(16).padStart(4, '0')
   const b16 = ((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16).padStart(2, '0')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${b12}-${b16}${hex.slice(18, 20)}-${hex.slice(20, 32)}`
 }
@@ -404,11 +405,11 @@ export function readImageSizeFromBytes(bytes: Uint8Array): { width: number; heig
   throw new Error('无法识别图片尺寸（仅支持 PNG / JPEG / WebP）')
 }
 
-function buildDirectoryMeta(uuid: string): PrefabObject {
+function buildDirectoryMeta(uuid: string, imported = true): PrefabObject {
   return {
     ver: '1.2.0',
     importer: 'directory',
-    imported: true,
+    imported,
     uuid,
     files: [],
     subMetas: {},
@@ -416,13 +417,13 @@ function buildDirectoryMeta(uuid: string): PrefabObject {
   }
 }
 
-function buildPrefabMeta(uuid: string, syncNodeName: string): PrefabObject {
+function buildPrefabMeta(uuid: string, syncNodeName: string, imported = true): PrefabObject {
   return {
     ver: '1.1.50',
     importer: 'prefab',
-    imported: true,
+    imported,
     uuid,
-    files: ['.json'],
+    files: imported ? ['.json'] : [],
     subMetas: {},
     userData: { syncNodeName },
   }
@@ -434,15 +435,17 @@ function buildImageMeta(
   width: number,
   height: number,
   fileExt: string,
+  imported = true,
 ): PrefabObject {
   const hw = width / 2
   const hh = height / 2
+  const libFiles = imported ? ['.json'] : []
   return {
     ver: '1.0.27',
     importer: 'image',
-    imported: true,
+    imported,
     uuid,
-    files: ['.json', fileExt],
+    files: imported ? ['.json', fileExt] : [],
     subMetas: {
       [TEXTURE_SUB]: {
         importer: 'texture',
@@ -462,8 +465,8 @@ function buildImageMeta(
           anisotropy: 0,
         },
         ver: '1.0.22',
-        imported: true,
-        files: ['.json'],
+        imported,
+        files: libFiles,
         subMetas: {},
       },
       [SPRITE_FRAME_SUB]: {
@@ -506,8 +509,8 @@ function buildImageMeta(
           trimType: 'none',
         },
         ver: '1.0.12',
-        imported: true,
-        files: ['.json'],
+        imported,
+        files: libFiles,
         subMetas: {},
       },
     },
@@ -1017,20 +1020,15 @@ export async function exportCocosPrefabCore(
   )
   await fs.writeText(
     `${baseName}/UI.meta`,
-    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`)), null, 2)}\n`,
+    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`), !hasZh), null, 2)}\n`,
   )
-  if (hasZh) {
-    await fs.writeText(
-      `${baseName}/UI/zh.meta`,
-      `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI/zh`)), null, 2)}\n`,
-    )
-  }
 
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i]!
     const bytes = pathToBytes.get(job.sourcePath)!
     const exportName = uniqueFileName(usedNames(job.subdir), job.sourcePath)
-    const uuid = stableUuid(imageUuidSeed(job.sourcePath, job.subdir))
+    const isZh = job.subdir === 'UI/zh'
+    const uuid = stableUuid(imageUuidSeed(job.sourcePath, job.subdir), isZh ? 4 : 5)
     if (usedUuids.has(uuid)) {
       console.warn(`[cocosPrefab] 图片 UUID 冲突：${job.subdir}/${job.sourcePath} → ${uuid}`)
     }
@@ -1045,7 +1043,14 @@ export async function exportCocosPrefabCore(
     await fs.writeBinary(`${baseName}/${job.subdir}/${exportName}`, bytes)
     await fs.writeText(
       `${baseName}/${job.subdir}/${exportName}.meta`,
-      `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt), null, 2)}\n`,
+      `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt, !isZh), null, 2)}\n`,
+    )
+  }
+
+  if (hasZh) {
+    await fs.writeText(
+      `${baseName}/UI/zh.meta`,
+      `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI/zh`), false), null, 2)}\n`,
     )
   }
 
@@ -1064,7 +1069,7 @@ export async function exportCocosPrefabCore(
   )
   await fs.writeText(
     `${baseName}/${baseName}.prefab.meta`,
-    `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName), null, 2)}\n`,
+    `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName, !hasZh), null, 2)}\n`,
   )
 
   await report('write-script', `写出配套脚本：${baseName}.ts`)
