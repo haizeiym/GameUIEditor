@@ -1,16 +1,32 @@
 /**
- * 导出 PNG/JPG 文件名：含汉字则转拼音首字母；碰撞加数字后缀。
+ * 含汉字的写盘名：图片用拼音首字母；Prefab 包名用全拼大驼峰。
  */
 import { pinyin } from 'pinyin-pro'
 import { sanitizeFsName } from './fsName'
 
 const CJK_RE = /[\u4e00-\u9fff]/
-const EXT_RE = /\.(png|jpg|jpeg|webp)$/i
+const IMAGE_EXT_RE = /\.(png|jpg|jpeg|webp)$/i
+const PACK_EXT_RE = /\.(json|prefab|ts)$/i
 const SAFE_RE = /[^A-Za-z0-9._-]/g
+const ODD_TRAIL_RE = /[._-]+$/
+
+function stripExt(rawName: string, extRe: RegExp): string {
+  return rawName.replace(extRe, '').trim()
+}
+
+/** 原名不含 `_` 时去掉结尾的 `_` `.` `-`（转换引入的奇怪符号） */
+function stripTrailingOddSymbols(stem: string, originalNoExt: string): string {
+  if (originalNoExt.includes('_')) return stem
+  return stem.replace(ODD_TRAIL_RE, '')
+}
+
+function finalizeStem(stem: string, originalNoExt: string, emptyFallback: string): string {
+  return stripTrailingOddSymbols(stem, originalNoExt) || emptyFallback
+}
 
 /** 去掉扩展名后的 stem；含汉字则拼音首字母缩写（小写）；无汉字沿用 sanitizeFsName */
 export function toImageFileStem(rawName: string): string {
-  const noExt = rawName.replace(EXT_RE, '').trim()
+  const noExt = stripExt(rawName, IMAGE_EXT_RE)
   if (CJK_RE.test(noExt)) {
     const abbr = pinyin(noExt, {
       pattern: 'first',
@@ -19,10 +35,37 @@ export function toImageFileStem(rawName: string): string {
       nonZh: 'consecutive',
       v: true,
     }).replace(/\s+/g, '')
-    const safe = sanitizeFsName(abbr).replace(SAFE_RE, '_')
-    return (safe || 'img').toLowerCase()
+    const safe = sanitizeFsName(abbr).replace(SAFE_RE, '_').toLowerCase()
+    return finalizeStem(safe, noExt, 'img')
   }
-  return sanitizeFsName(noExt)
+  return finalizeStem(sanitizeFsName(noExt), noExt, 'untitled')
+}
+
+/**
+ * Prefab 导出包标识：文件夹 / prefab / 脚本文件名 / 类名同一串。
+ * 含汉字 → 全拼大驼峰；无汉字 → sanitizeFsName。
+ */
+export function toExportBaseName(rawName: string): string {
+  const noExt = stripExt(rawName, PACK_EXT_RE)
+  if (!CJK_RE.test(noExt)) {
+    return finalizeStem(sanitizeFsName(noExt), noExt, 'ui')
+  }
+
+  const parts = pinyin(noExt, {
+    toneType: 'none',
+    type: 'array',
+    nonZh: 'consecutive',
+    v: true,
+  })
+  const tokens = (Array.isArray(parts) ? parts : String(parts).split(/\s+/))
+    .map((part) => part.replace(/[^A-Za-z0-9]/g, ''))
+    .filter((part) => part.length > 0)
+  const ident = tokens
+    .map((t) => `${t.charAt(0).toUpperCase()}${t.slice(1).toLowerCase()}`)
+    .join('')
+  let safe = finalizeStem(ident, noExt, 'ui')
+  if (/^[0-9]/.test(safe)) safe = `UI${safe}`
+  return safe || 'ui'
 }
 
 /**

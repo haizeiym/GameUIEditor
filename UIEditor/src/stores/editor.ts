@@ -21,6 +21,7 @@ import {
   serializeForDisk,
 } from '../utils/node'
 import { sanitizeFsName } from '../utils/psd'
+import { toExportBaseName } from '../utils/imageFileName'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -300,7 +301,7 @@ export const useEditorStore = defineStore('editor', () => {
       }))
 
     const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
-    const baseName = sanitizeFsName(rawName) || 'ui'
+    const baseName = toExportBaseName(rawName)
 
     if (await pathExists(exportRoot, baseName)) {
       const ok = confirmOverwrite ? await confirmOverwrite(baseName) : true

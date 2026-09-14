@@ -194,7 +194,7 @@ interface UINode {
 去掉前导 .
 trim；若结果为空 → "untitled"
 ```
-界面名、目录名、无汉字的图片名用此函数。含汉字的 PNG/JPG **写盘名**见 §5.6（节点 `name` 不改）。
+界面名、目录名、无汉字的图片名用此函数。含汉字的 PNG/JPG **写盘名**见 §5.6；Prefab 导出包名见 §6.1（节点 `name` / 项目内 JSON 文件名不改）。
 
 ## 2.6 读写规范化
 - **读入**：补齐缺失基础字段；为整树生成运行时 `_id`；子节点缺 `zIndex` 时用其在父 `children` 中的下标。
@@ -312,11 +312,12 @@ y = top  + height/2 - docH/2
 
 1. 用成熟拼音库 **`pinyin-pro`**：`pattern: 'first'`、`toneType: 'none'`、`nonZh: 'consecutive'`（非汉字原样保留）。
 2. 去空白后经 `sanitizeFsName`，再只保留 `[A-Za-z0-9._-]`，**全体小写**。空则 `img`。
-3. 扩展名保持来源（PSD 像素层固定 `.png`；Prefab 跟原文件）。
-4. **首字母碰撞**（大小写不敏感）：`bj.png`、`bj_1.png`、`bj_2.png`…
-5. 写盘文件名与 JSON `SpriteComponent.framePath` 的末段必须是新名，禁止再写中文文件名。
+3. **尾部符号**：原名（去扩展名）**不含 `_`** 时，结果不得以 `_`、`.`、`-` 结尾（去掉拼音/替换产生的尾部符号）。原名本身含 `_` 则不因本条删掉结尾 `_`。碰撞后缀 `_1` 不受本条影响。
+4. 扩展名保持来源（PSD 像素层固定 `.png`；Prefab 跟原文件）。
+5. **首字母碰撞**（大小写不敏感）：`bj.png`、`bj_1.png`、`bj_2.png`…
+6. 写盘文件名与 JSON `SpriteComponent.framePath` 的末段必须是新名，禁止再写中文文件名。
 
-例：图层「背景」→ `bj.png`；「布局」也是 `bj` → `bj_1.png`。节点仍显示「背景」「布局」。
+例：图层「背景」→ `bj.png`；「背景。」（无 `_`）→ `bj.png` 而非 `bj_.png`；「布局」也是 `bj` → `bj_1.png`。节点仍显示原名。
 
 无汉字则仍用 `sanitizeFsName`（现有规则），不去拼音。
 
@@ -340,9 +341,13 @@ y = top  + height/2 - docH/2
 {out}/test/test.ts.meta
 # 各层目录 .meta
 ```
+- **包标识名**（文件夹、`{name}.prefab`、`{name}.ts`、脚本类名 `@ccclass` **同一串**）：取当前 UI JSON 去扩展名（CLI 为 `--ui` 文件名）。**禁止中文落入这四者**。
+  - 无汉字：`sanitizeFsName`（与现网一致，如 `test`）。
+  - 有汉字：**不要**用 §5.6 首字母。用 `pinyin-pro` **全拼**（`toneType: 'none'`、`type: 'array'`、`nonZh: 'consecutive'`），每段首字母大写拼成 **大驼峰**：`主界面` → `ZhuJieMian` → `{out}/ZhuJieMian/ZhuJieMian.prefab` + `ZhuJieMian.ts`。
+  - 尾部 `_` `.` `-`：同 §5.6 第 3 条。空则 `ui`；若以数字开头加前缀 `UI`。
+  - 项目内 JSON 仍可为中文文件名，只改导出包。
 
 ## 6.2 资源与稳定 UUID
-- **导出名称** 导出的文件夹名，prefab名称，及脚本名称不要包括中文，如果遇到中文同§5.6 处理，不同处理为全拼音，且遵循驼峰命名规则
 - **只打包** JSON 中实际引用的 `SpriteComponent.framePath`；缺图失败并列出路径。
 - 复制到 `{out}/…/UI/` 时文件名按 §5.6 处理（含汉字则拼音首字母；碰撞 `_1` `_2`）。
 - Prefab 内必须用 SpriteFrame UUID（`{uuid}@f9941`），禁止写入路径字符串。
@@ -377,11 +382,12 @@ y = top  + height/2 - docH/2
 FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
 ## 6.5 配套脚本
-- 读取 `codePreview/cocosPrefab.md` 的 `ts` 块，全部 `FileName` → 安全界面名（如 `test`）。
+- 读取 `codePreview/cocosPrefab.md` 的 `ts` 块，全部 `FileName` → **包标识名**（§6.1，如 `test` / `ZhuJieMian`）。
 - 网页与 CLI 均须生成；CLI 优先读磁盘 md，否则内置兜底同一模板。
 
 ## 6.6 验收
 - 拷入空 Creator 3.8 工程 `assets`：无缺失引用；可打开 Prefab；层级/位置（含 Y 翻转）/贴图/枚举与编辑器一致；根已挂同名脚本。
+- 中文 UI 名：`主界面.json` 导出为 `ZhuJieMian/` 包，不含汉字。
 - 覆盖：目标已存在时网页确认 / CLI 无 `--force` 则失败。
 
 ## 6.7 导出进度（通用，与引擎解耦）
@@ -439,7 +445,8 @@ uieditor --help
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
-10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，节点名仍为「背景」；两层同首字母时出现 `bj_1.png`。
+10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，节点名仍为「背景」；两层同首字母时出现 `bj_1.png`；「背景。」无 `_` 时不得写成 `bj_.png`。
+11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
 
 ---
 

@@ -13,8 +13,7 @@ import {
   writeBinaryFile,
   writeTextFile,
 } from './fs'
-import { sanitizeFsName } from './fsName'
-import { uniqueImageFileName } from './imageFileName'
+import { uniqueImageFileName, toExportBaseName } from './imageFileName'
 import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
 import { findDescendantByPath, resolveScriptBindField } from './uiNode'
 
@@ -825,7 +824,7 @@ export async function exportCocosPrefabCore(
   options: CocosPrefabExportCoreOptions,
 ): Promise<CocosPrefabExportResult> {
   const { root, readImageBytes, fs } = options
-  const baseName = sanitizeFsName(options.baseName) || 'ui'
+  const baseName = toExportBaseName(options.baseName)
   const framePaths = collectFramePaths(root)
   const missing: string[] = []
   const usedNames = new Set<string>()
@@ -929,7 +928,7 @@ export async function exportCocosPrefab(
 ): Promise<CocosPrefabExportResult> {
   const { exportRoot, root, readImage } = options
   // 确保包目录存在
-  const baseName = sanitizeFsName(options.baseName) || 'ui'
+  const baseName = toExportBaseName(options.baseName)
   const packDir = await getDirectoryHandleByPath(exportRoot, baseName, true)
   if (!packDir) throw new Error('无法创建导出目录')
   const uiDir = await getDirectoryHandleByPath(packDir, 'UI', true)

@@ -2,6 +2,7 @@
  * 从 codePreview/cocosPrefab.md 加载脚本模板，并将 FileName 替换为导出界面名。
  * 浏览器：Vite glob；CLI：可传入 md 文本，否则用内置兜底（与 md 同步）。
  */
+import { toExportBaseName } from './imageFileName'
 
 /** 与 codePreview/cocosPrefab.md 同步的兜底模板 */
 const EMBEDDED_MD = `\`\`\`ts
@@ -65,11 +66,11 @@ export function extractTsFromMarkdown(md: string): string {
   return `${match[1].replace(/\s+$/, '')}\n`
 }
 
-/** 合法 TS / Cocos 类名（替换模板中的 FileName） */
+/** 合法 TS / Cocos 类名（替换模板中的 FileName）；与包标识名同一串（§6.1） */
 export function toPrefabScriptClassName(baseName: string): string {
-  let s = baseName.replace(/[^a-zA-Z0-9_]/g, '_')
+  let s = toExportBaseName(baseName).replace(/[^a-zA-Z0-9_]/g, '_')
   if (!s) s = 'UIPrefab'
-  if (/^[0-9]/.test(s)) s = `UI_${s}`
+  if (/^[0-9]/.test(s)) s = `UI${s}`
   return s
 }
 

@@ -11,7 +11,7 @@
 import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { exportCocosPrefabCore } from '../src/utils/cocosPrefab'
-import { sanitizeFsName } from '../src/utils/fsName'
+import { toExportBaseName } from '../src/utils/imageFileName'
 import { parsePsdBuffer } from '../src/utils/psd'
 import { normalizeUIData, parseComponentDefs, serializeForDisk } from '../src/utils/uiNode'
 
@@ -184,8 +184,7 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
   if (!(await pathExists(absUi))) throw new Error(`UI JSON 不存在：${absUi}`)
 
   const root = await loadUiJson(absUi)
-  const baseName =
-    sanitizeFsName(path.basename(absUi).replace(/\.json$/i, '')) || 'ui'
+  const baseName = toExportBaseName(path.basename(absUi).replace(/\.json$/i, ''))
   const packDir = path.join(absOut, baseName)
   if (await pathExists(packDir)) {
     if (!flagBool(flags, 'force')) {
