@@ -148,6 +148,34 @@ const FALLBACK_COMPONENTS_JSON = `{
       }
     },
     "componentType": 3
+  },
+  "ButtonComponent": {
+    "properties": {
+      "target": { "type": "string", "default": "", "displayName": "目标节点" },
+      "transition": {
+        "type": "enum",
+        "default": "SCALE",
+        "options": [
+          { "label": "NONE", "value": "NONE" },
+          { "label": "SCALE", "value": "SCALE" }
+        ]
+      }
+    },
+    "componentType": 4
+  },
+  "LangSpriteComponent": {
+    "properties": {
+      "scriptPath": { "type": "string", "default": "", "displayName": "脚本路径" },
+      "scriptUuid": { "type": "string", "default": "", "displayName": "脚本UUID" }
+    },
+    "componentType": 5
+  },
+  "LangLabelComponent": {
+    "properties": {
+      "scriptPath": { "type": "string", "default": "", "displayName": "脚本路径" },
+      "scriptUuid": { "type": "string", "default": "", "displayName": "脚本UUID" }
+    },
+    "componentType": 6
   }
 }
 `

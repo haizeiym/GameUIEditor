@@ -57,7 +57,7 @@ async function onDeleteNode() {
 
 function dropTargetFor(type: string, propName: string): 'image' | 'script' | false {
   if (type === 'SpriteComponent' && propName === 'framePath') return 'image'
-  if (type === 'SimpleListComponent' && propName === 'scriptPath') return 'script'
+  if (propName === 'scriptPath') return 'script'
   return false
 }
 
@@ -112,7 +112,7 @@ async function onScriptDrop(type: string, e: DragEvent) {
 }
 
 function onPropCommit(type: string, propName: string) {
-  if (type === 'SimpleListComponent' && propName === 'scriptPath') {
+  if (propName === 'scriptPath') {
     void onScriptPathCommit(type)
     return
   }

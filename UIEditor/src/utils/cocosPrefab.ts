@@ -29,6 +29,8 @@ const TextAlign = { LEFT: 0, CENTER: 1, RIGHT: 2, TOP: 0, BOTTOM: 2 } as const
 const LabelOverflow = { NONE: 0, CLAMP: 1, SHRINK: 2, RESIZE_HEIGHT: 3 } as const
 /** Cocos CacheMode */
 const LabelCacheMode = { NONE: 0, BITMAP: 1, CHAR: 2 } as const
+/** Cocos Button.Transition：仅支持 NONE / SCALE */
+const ButtonTransition = { NONE: 0, SCALE: 3 } as const
 
 export interface CocosPrefabExportResult {
   baseName: string
@@ -136,6 +138,33 @@ function resolveItemCreationMode(v: unknown): number {
     if (key === 'PREFAB') return 1
   }
   return 1
+}
+
+function nodeNameStartsWithBtn(name: string): boolean {
+  return name.startsWith('Btn')
+}
+
+/** Button.transition：NONE=0, SCALE=3（缺省 SCALE） */
+function resolveButtonTransition(v: unknown): number {
+  if (typeof v === 'string') {
+    const key = v.trim().toUpperCase()
+    if (key === 'NONE') return ButtonTransition.NONE
+    if (key === 'SCALE') return ButtonTransition.SCALE
+  }
+  if (v === ButtonTransition.NONE || v === ButtonTransition.SCALE) return v
+  return ButtonTransition.SCALE
+}
+
+/**
+ * 导出用 Button 数据：已有 ButtonComponent 则用它；否则节点名 `Btn` 开头时按缺省补一份（不回写 JSON）。
+ */
+function resolveButtonSource(node: UINode): Record<string, unknown> | null {
+  const existing = node.components['ButtonComponent']
+  if (existing) return existing
+  if (nodeNameStartsWithBtn(node.name || '')) {
+    return { target: '', transition: 'SCALE' }
+  }
+  return null
 }
 
 /**
@@ -754,6 +783,69 @@ export function buildPrefabObjects(
         )
       }
     }
+
+    const buttonSrc = resolveButtonSource(node)
+    if (buttonSrc) {
+      const targetPath = typeof buttonSrc.target === 'string' ? buttonSrc.target.trim() : ''
+      const targetUI = targetPath ? findDescendantByPath(node, targetPath) : null
+      const targetPrefabId = targetUI ? uiIdToPrefabId.get(targetUI._id) : undefined
+      const btnId = objects.length
+      objects.push({
+        __type__: 'cc.Button',
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: btnId + 1 },
+        clickEvents: [],
+        _interactable: true,
+        _transition: resolveButtonTransition(buttonSrc.transition),
+        _normalColor: colorObj({ r: 255, g: 255, b: 255, a: 255 }),
+        _hoverColor: colorObj({ r: 211, g: 211, b: 211, a: 255 }),
+        _pressedColor: colorObj({ r: 255, g: 255, b: 255, a: 255 }),
+        _disabledColor: colorObj({ r: 124, g: 124, b: 124, a: 255 }),
+        _normalSprite: null,
+        _hoverSprite: null,
+        _pressedSprite: null,
+        _disabledSprite: null,
+        _duration: 0.1,
+        _zoomScale: 1.2,
+        _target: targetPrefabId != null ? { __id__: targetPrefabId } : null,
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(btnId)
+    }
+
+    const pushBoundScript = (compName: string, extra: Record<string, unknown> = {}) => {
+      const inst = node.components[compName]
+      if (!inst) return
+      const uuid = resolveSimpleListScriptUuid(inst, defs[compName])
+      if (!uuid) {
+        console.warn(
+          `[cocosPrefab] ${compName} 缺少 scriptUuid（请设置 scriptPath 以从 .meta 自动填充），已跳过脚本绑定`,
+        )
+        return
+      }
+      const scriptType = compressUuid(uuid)
+      const sid = objects.length
+      objects.push({
+        __type__: scriptType,
+        _name: '',
+        _objFlags: 0,
+        __editorExtras__: {},
+        node: { __id__: nodeId },
+        _enabled: true,
+        __prefab: { __id__: sid + 1 },
+        ...extra,
+        _id: '',
+      })
+      objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
+      compIds.push(sid)
+    }
+    pushBoundScript('LangSpriteComponent')
+    pushBoundScript('LangLabelComponent')
 
     // 根节点挂载配套 .ts 脚本（__type__ = 压缩后的 typescript UUID）
     if (parentId === null && scriptType) {

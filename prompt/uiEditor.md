@@ -95,7 +95,7 @@ interface UINode {
 ## 2.3 组件互斥
 - `components.json` 每项可含 `componentType?: number`。
 - 规则：同名组件只能挂一个；若定义了 `componentType`，则**同 `componentType` 也只能挂一个**。
-- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`。
+- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`。
 
 ## 2.4 默认 `components.json`（新建项目必须写入；规格以本块为准）
 
@@ -185,6 +185,8 @@ interface UINode {
 }
 ```
 
+完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel），新建项目必须写入该文件，勿只拷上面的节选。
+
 属性类型：`string` | `number` | `boolean` | `color` | `v2` | `enum`。枚举在 JSON / 内存中存 **字符串 value**（如 `"TRIMMED"`），导出 Prefab 时再映射为引擎数值。
 
 ## 2.5 文件名安全 `sanitizeFsName`
@@ -266,7 +268,7 @@ trim；若结果为空 → "untitled"
 - `el-collapse`：标题左类型、右删组件。
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
-- `SimpleListComponent.scriptPath`：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
+- `scriptPath`（SimpleList / LangSprite / LangLabel）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
 
 ## 3.5 底部资源管理器
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
@@ -381,8 +383,11 @@ y = top  + height/2 - docH/2
 - `LabelComponent` → `cc.Label`：`text` → `_string`；以及 color、fontSize、lineHeight、fontFamily、enableWrapText、isBold、对齐 / overflow / cacheMode；`_isSystemFontUsed: true`。
 - `OpacityComponent` → `cc.UIOpacity`：编辑器侧按 `0–1`（兼容误写 `0–255`）转为引擎 0–255。
 - `SimpleListComponent` → 同节点先挂 `cc.ScrollView`（`horizontal`/`vertical` 取自属性），再按 `scriptUuid`（可由 `scriptPath` 对应 `.meta` 自动填充）绑定自定义脚本；`ScrollView._content` 指向 `viewNode`（默认 `view/content`）。添加组件时自动创建子节点 `view` → `content`。导出时名为 `view` 的子节点自动挂 `cc.Mask`。
+- `ButtonComponent` → `cc.Button`：`transition` 见 §6.4；`target` 为相对本节点的路径（空则 `_target: null`，缩放作用在自身）。`clickEvents` 为空（运行时 BindUI 绑定）。
+- **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: ""` 补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
+- `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。
 - 无上述组件则仅 Node + UITransform。
-- 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
+- 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本|Button|Lang 脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
 - 子节点顺序 = JSON `children` 原序。
 
 ## 6.4 枚举数值（导出时转换）
@@ -394,6 +399,7 @@ y = top  + height/2 - docH/2
 | overflow | NONE=0, CLAMP=1, SHRINK=2, RESIZE_HEIGHT=3 |
 | cacheMode | NONE=0, BITMAP=1, CHAR=2（缺省 BITMAP） |
 | SimpleList.itemCreationMode | NODE=0, PREFAB=1（缺省 PREFAB） |
+| Button.transition | NONE=0, SCALE=3（缺省 SCALE；不导出 COLOR/SPRITE） |
 
 FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
@@ -465,6 +471,7 @@ uieditor --help
 11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新仍生效；【恢复默认】还原。
+14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 
 ---
 
