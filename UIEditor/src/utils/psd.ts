@@ -10,10 +10,15 @@
  * - Photoshop 面板自上而下与引擎渲染顺序相反。
  * - ag-psd 读盘后的 children 已是引擎顺序（底层在前），创建节点时按该顺序直接 push，禁止再 reverse。
  */
-import { readPsd, type Layer } from 'ag-psd'
+import { initializeCanvas, readPsd, type Layer } from 'ag-psd'
 import type { UINode } from '../types'
+import {
+  createExportProgressReporter,
+  type OnExportProgress,
+} from './exportProgress'
 import { sanitizeFsName } from './fsName'
 import { uniqueImageFileName } from './imageFileName'
+import { hashRgba } from './sha256'
 import { createNode, serializeForDisk } from './uiNode'
 
 export { sanitizeFsName } from './fsName'
@@ -35,13 +40,16 @@ export interface PsdImportResult {
   jsonPath: string
   jsonContent: string
   images: ParsedPsdLayerImage[]
+  /** 像素图层数（去重前；每个叶子节点仍各建一个） */
+  layerCount: number
+  /** 写盘 PNG 数（去重后） */
+  uniqueImageCount: number
   /** PSD 文档像素尺寸（图层坐标仍按此中心换算） */
   documentWidth: number
   documentHeight: number
   /** 写入 Root 的设计分辨率（默认横屏 1366×768，不随 PSD 文档变化） */
   rootWidth: number
   rootHeight: number
-  layerCount: number
 }
 
 export interface ParsePsdOptions {
@@ -50,12 +58,37 @@ export interface ParsePsdOptions {
   /** Root 宽高 = 设计分辨率；默认 1366×768，不使用 PSD 文档尺寸 */
   rootWidth?: number
   rootHeight?: number
+  onProgress?: OnExportProgress
 }
 
 const DEFAULT_ROOT_WIDTH = 1366
 const DEFAULT_ROOT_HEIGHT = 768
 
 const hasDomCanvas = typeof document !== 'undefined'
+
+/** Node 无 DOM canvas 时，ag-psd 仍用 createImageData 承接 8-bit RGBA */
+if (!hasDomCanvas) {
+  const nodeImageData = (width: number, height: number): ImageData =>
+    ({
+      width,
+      height,
+      data: new Uint8ClampedArray(Math.max(0, width) * Math.max(0, height) * 4),
+      colorSpace: 'srgb',
+    }) as ImageData
+  initializeCanvas(
+    (width, height) =>
+      ({
+        width,
+        height,
+        getContext: () => ({
+          createImageData: nodeImageData,
+          putImageData: () => undefined,
+          getImageData: () => nodeImageData(width, height),
+        }),
+      }) as unknown as HTMLCanvasElement,
+    nodeImageData,
+  )
+}
 
 function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -80,6 +113,7 @@ async function rgbaToPngBytes(
 
 async function layerToPngBytes(
   layer: Layer,
+  rgbaHint?: { data: Uint8Array | Uint8ClampedArray; width: number; height: number },
 ): Promise<{ bytes: Uint8Array; width: number; height: number } | null> {
   if (layer.canvas) {
     const blob = await canvasToPngBlob(layer.canvas)
@@ -90,14 +124,48 @@ async function layerToPngBytes(
     }
   }
   const imageData = layer.imageData
-  if (!imageData?.data || !imageData.width || !imageData.height) return null
-  const pixel = imageData.data
+  const width = rgbaHint?.width || imageData?.width
+  const height = rgbaHint?.height || imageData?.height
+  const pixel = rgbaHint?.data || imageData?.data
+  if (!pixel || !width || !height) return null
   const rgba =
     pixel instanceof Uint8ClampedArray || pixel instanceof Uint8Array
       ? pixel
       : new Uint8ClampedArray(pixel as ArrayLike<number>)
-  const bytes = await rgbaToPngBytes(imageData.width, imageData.height, rgba)
-  return { bytes, width: imageData.width, height: imageData.height }
+  const bytes = await rgbaToPngBytes(width, height, rgba)
+  return { bytes, width, height }
+}
+
+function layerRgba(
+  layer: Layer,
+): { data: Uint8Array | Uint8ClampedArray; width: number; height: number } | null {
+  if (layer.canvas) {
+    const ctx = layer.canvas.getContext('2d')
+    if (!ctx) return null
+    const { width, height } = layer.canvas
+    if (!width || !height) return null
+    return { data: ctx.getImageData(0, 0, width, height).data, width, height }
+  }
+  const imageData = layer.imageData
+  if (!imageData?.data || !imageData.width || !imageData.height) return null
+  const pixel = imageData.data
+  const data =
+    pixel instanceof Uint8ClampedArray || pixel instanceof Uint8Array
+      ? pixel
+      : new Uint8ClampedArray(pixel as ArrayLike<number>)
+  return { data, width: imageData.width, height: imageData.height }
+}
+
+function countExportableLeaves(layers: readonly Layer[]): number {
+  let n = 0
+  for (const layer of layers) {
+    if (layer.children && layer.children.length > 0) {
+      n += countExportableLeaves(layer.children)
+    } else {
+      n += 1
+    }
+  }
+  return n
 }
 
 /**
@@ -193,7 +261,9 @@ export async function parsePsdBuffer(
     opts.baseNameOverride?.trim() || sourceName.replace(/\.psd$/i, ''),
   )
   // 浏览器用 canvas；Node 用 imageData（无 DOM）
-  const psd = hasDomCanvas ? readPsd(buffer) : readPsd(buffer, { useImageData: true })
+  const psd = hasDomCanvas
+    ? readPsd(buffer, { skipCompositeImageData: true })
+    : readPsd(buffer, { useImageData: true, skipCompositeImageData: true })
 
   const docW = Math.max(1, psd.width)
   const docH = Math.max(1, psd.height)
@@ -202,9 +272,14 @@ export async function parsePsdBuffer(
 
   const images: ParsedPsdLayerImage[] = []
   const usedNames = new Set<string>()
+  const byHash = new Map<string, ParsedPsdLayerImage>()
   let layerCount = 0
+  let leafIndex = 0
 
   const uniquePngName = (raw: string): string => uniqueImageFileName(usedNames, raw, '.png')
+  const leafTotal = countExportableLeaves(psd.children ?? [])
+  const report = createExportProgressReporter('psd', leafTotal + 2, opts.onProgress)
+  await report('prepare', '正在解析 PSD 图层…')
 
   const convertChildren = async (layers: readonly Layer[]): Promise<UINode[]> => {
     const kids: UINode[] = []
@@ -249,22 +324,37 @@ export async function parsePsdBuffer(
       return node
     }
 
-    const png = await layerToPngBytes(layer)
-    if (!png) return null
+    const rgba = layerRgba(layer)
+    if (!rgba) {
+      leafIndex += 1
+      await report('hash-images', `跳过空图层（${leafIndex}/${leafTotal}）${name}`)
+      return null
+    }
 
-    const rect = layerPixelRect(layer, png.width, png.height)
-    const fileName = uniquePngName(name)
-    const relativePath = `${baseName}/UI/${fileName}`
-    images.push({
-      fileName,
-      relativePath,
-      bytes: png.bytes,
-      width: rect.width,
-      height: rect.height,
-    })
+    leafIndex += 1
+    await report('hash-images', `比对图层（${leafIndex}/${leafTotal}）${name}`)
+    const digest = await hashRgba(rgba.width, rgba.height, rgba.data)
+    const reused = byHash.get(digest)
+    let image = reused
+    if (!image) {
+      const png = await layerToPngBytes(layer, rgba)
+      if (!png) return null
+      const fileName = uniquePngName(name)
+      image = {
+        fileName,
+        relativePath: `${baseName}/UI/${fileName}`,
+        bytes: png.bytes,
+        width: png.width,
+        height: png.height,
+      }
+      byHash.set(digest, image)
+      images.push(image)
+    }
+
+    const rect = layerPixelRect(layer, image.width, image.height)
     layerCount += 1
 
-    const node = createNode(fileName.replace(/\.png$/i, ''))
+    const node = createNode(image.fileName.replace(/\.png$/i, ''))
     node.active = !layer.hidden
     const t = psdRectToEditorTransform(rect.left, rect.top, rect.width, rect.height, docW, docH)
     node.x = t.x
@@ -274,7 +364,7 @@ export async function parsePsdBuffer(
 
     applyOpacityComponent(node, layer)
     node.components['SpriteComponent'] = {
-      framePath: relativePath,
+      framePath: image.relativePath,
       color: '#FFFFFF',
       sizeMode: 'TRIMMED',
       type: 'SIMPLE',
@@ -288,6 +378,7 @@ export async function parsePsdBuffer(
   root.x = 0
   root.y = 0
   root.children = await convertChildren(psd.children ?? [])
+  await report('done', `图层 ${layerCount}，去重后 ${images.length} 张图`)
 
   return {
     baseName,
@@ -301,6 +392,7 @@ export async function parsePsdBuffer(
     rootWidth: rootW,
     rootHeight: rootH,
     layerCount,
+    uniqueImageCount: images.length,
   }
 }
 

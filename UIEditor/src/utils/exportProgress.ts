@@ -57,4 +57,5 @@ export function createExportProgressReporter(
 /** 常见引擎展示名（进度框标题用） */
 export const EXPORT_ENGINE_LABELS: Record<string, string> = {
   cocos: 'Cocos Creator Prefab',
+  psd: 'PSD',
 }

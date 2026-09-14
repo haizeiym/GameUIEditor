@@ -37,7 +37,7 @@
 
 | 场景 | 必须一致（允许差异） |
 |---|---|
-| PSD → UI JSON | 节点树结构、`name`/`active`/`x`/`y`/`width`/`height`、`children` 顺序、Sprite `framePath` 集合、Opacity 挂载规则一致。允许 `_id` 等运行时字段、JSON key 顺序、空白格式差异。 |
+| PSD → UI JSON | 节点树结构、`name`/`active`/`x`/`y`/`width`/`height`、`children` 顺序、Sprite `framePath` 集合（**相同 RGBA 必须同一路径**，见 §5.8）、Opacity 挂载规则一致。允许 `_id` 等运行时字段、JSON key 顺序、空白格式差异。 |
 | UI JSON → Prefab 包 | 目录结构、图片清单、节点层级、`_lpos.y = -y`、枚举数值、SpriteFrame `uuid@f9941` 引用形态一致。`fileId` 等随机字段可不同；**同路径图片 UUID 须由稳定种子算法生成**（见 §6.2）。 |
 | CLI ↔ 网页 | 同一 PSD / 同一 JSON：批处理结果与网页按钮产物在上表意义上等价。 |
 
@@ -220,7 +220,7 @@ trim；若结果为空 → "untitled"
 - 【导出UI界面】：当前 UI 另存。
 - 【切换横竖屏】：默认横屏；交换设计宽高并同步 Root。
 - 【设置分辨率】：默认 `1366×768`；同步 Root。
-- 【导入PSD】✓CLI（第五节）；网页记录最近 10 条路径（第十一节）。
+- 【导入PSD】✓CLI（第五节）；网页走通用进度框（§5.8 / §6.7）；记录最近 10 条路径（第十一节）。
 - 【导出PSD模版】：当前 UI → `.psd` 图层模版（第十节）；网页 `showSaveFilePicker`；记录最近 10 条路径（第十一节）。
 - 【导出 Cocos Creator3.x Prefab】✓CLI（第六节）；网页导出时弹出**通用进度框**（与引擎解耦，见 §6.7）；记录最近 10 条路径（第十一节）。
 - 【编辑组件库】：Modal（Monaco 或 textarea）编辑 `components.json`；保存校验 JSON → 写盘 → 刷新 Pinia 预设。
@@ -349,6 +349,17 @@ y = top  + height/2 - docH/2
 - 浏览器：`readPsd(buffer)` + `layer.canvas.toBlob`。
 - Node：`readPsd(buffer, { useImageData: true })` + `pngjs` 编码，避免把 Node 专用解码打进浏览器主包。
 
+## 5.8 相同切图去重（必须）
+像素层写出 PNG 前按**像素内容**去重：相同则**只写一份文件**，所有 Sprite 的 `framePath` 指向该文件。节点仍各建一个（坐标/显隐/透明度独立）；节点 `name` = 共用文件 stem（§5.5）。
+
+**判定（高效且准确）**：
+1. 宽或高不同 → 必不同，不必比像素。
+2. 否则对**未压缩 RGBA**（先 8 字节小端 `width,height`，再逐字节像素）做 **SHA-256**。哈希相同则视为同一张图。
+3. **禁止**用 PNG 文件字节当指纹（浏览器 `toBlob` 与 Node `pngjs` 编码不可复现；同像素也可能不同压缩结果）。
+4. 引擎顺序下**先出现的图层**决定写盘名；后者只复用路径，不再 `uniquePngName`、不再编码 PNG。
+
+**进度**：哈希/编码可能重。网页必须走 §6.7 通用进度框（`engine: "psd"`，标题「导入 PSD」）；按图层步进并 `yield` 主线程。CLI 可不弹 UI。写盘阶段按**去重后**的文件数报告。
+
 ---
 
 # 六、导出 Cocos Creator 3.8 Prefab
@@ -424,16 +435,16 @@ FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 - 覆盖：目标已存在时网页确认 / CLI 无 `--force` 则失败。
 
 ## 6.7 导出进度（通用，与引擎解耦）
-- **目的**：网页导出 Prefab 时展示进度；后续 Unity 等引擎导出复用同一套 UI / 事件，禁止把进度框写死在 Cocos 导出里。
+- **目的**：网页导出 Prefab、**导入 PSD**（§5.8）共用进度框；禁止把进度框写死在某一引擎导出里。
 - **事件形状**（`ExportProgressEvent`，纯数据，无 Vue / Element Plus）：
-  - `engine`：目标引擎 id（如 `"cocos"`；新增引擎扩展 `EXPORT_ENGINE_LABELS`）
-  - `phase`：阶段 key（`prepare` / `read-images` / `write-images` / `write-prefab` / `write-script` / `done`）
+  - `engine`：目标 id（如 `"cocos"` / `"psd"`；新增时扩展 `EXPORT_ENGINE_LABELS`）
+  - `phase`：阶段 key（导出：`prepare` / `read-images` / `write-images` / …；导入 PSD：`prepare` / `hash-images` / `write-images` / `done`）
   - `message`：用户可见文案
   - `current` / `total`：线性步进（`percent = round(current/total*100)`）
 - **分层**：
-  1. 核心导出（`exportCocosPrefabCore` 等）只接收可选 `onProgress?: (e) => void`，每步报告并 `yield` 主线程。
-  2. `useExportProgress` + `ExportProgressDialog`：通用进度框；默认**首条进度再弹出**（先选目录 / 确认覆盖）。
-  3. 顶栏入口：`runWithProgress('cocos', …)`；未来其它引擎改为 `runWithProgress('unity', …)` 即可。
+  1. 核心（`parsePsdBuffer` / `exportCocosPrefabCore` 等）只接收可选 `onProgress?: (e) => void`，每步报告并 `yield` 主线程。
+  2. `useExportProgress` + `ExportProgressDialog`：通用进度框；默认**首条进度再弹出**（先选目录 / 确认覆盖）。导入 PSD 在已选文件后可立即弹出。
+  3. 顶栏：导出 `runWithProgress('cocos', …)`；导入 PSD `runWithProgress('psd', …)`。
 - CLI：可不传 `onProgress`，或接到 stderr 日志；不弹 UI。
 
 ---
@@ -472,7 +483,7 @@ uieditor --help
 1. Chrome/Edge：新建项目 → 出现 `components.json` / `assets/` / `main.json`。
 2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
-4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。
+4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。相同像素层只写一份 PNG，多个节点共用 `framePath`；网页有进度框。
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。

@@ -242,29 +242,23 @@ async function resolveRecentHandle(
 
 async function importPsdFromHandle(handle: FileSystemFileHandle) {
   const file = await handle.getFile()
-  const loading = ElMessage({
-    message: `正在导入 PSD「${file.name}」并解析图层…`,
-    type: 'info',
-    duration: 0,
-    showClose: false,
-  })
-  try {
-    const result = await project.importPsd(file, {
-      rootWidth: editor.canvasWidth,
-      rootHeight: editor.canvasHeight,
-    })
-    loading.close()
-    await editor.loadUIFile(result.handle, result.path)
-    editor.setResolution(result.rootWidth, result.rootHeight)
-    await rememberRecentIo('import-psd', handle)
-    refreshRecents()
-    ElMessage.success(
-      `PSD 导入完成：${result.path}（${result.layerCount} 个图层，PSD ${result.documentWidth}×${result.documentHeight}，Root ${result.rootWidth}×${result.rootHeight}）`,
-    )
-  } catch (err) {
-    loading.close()
-    throw err
-  }
+  const result = await runWithProgress(
+    'psd',
+    async (onProgress) =>
+      project.importPsd(file, {
+        rootWidth: editor.canvasWidth,
+        rootHeight: editor.canvasHeight,
+        onProgress,
+      }),
+    { openOnFirstProgress: false },
+  )
+  await editor.loadUIFile(result.handle, result.path)
+  editor.setResolution(result.rootWidth, result.rootHeight)
+  await rememberRecentIo('import-psd', handle)
+  refreshRecents()
+  ElMessage.success(
+    `PSD 导入完成：${result.path}（${result.layerCount} 个图层，${result.uniqueImageCount} 张图，PSD ${result.documentWidth}×${result.documentHeight}，Root ${result.rootWidth}×${result.rootHeight}）`,
+  )
 }
 
 async function onImportPsd() {

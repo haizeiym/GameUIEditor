@@ -18,6 +18,7 @@ export function useExportProgress() {
   const total = ref(1)
 
   const title = computed(() => {
+    if (engine.value === 'psd') return '导入 PSD'
     const label = EXPORT_ENGINE_LABELS[engine.value] || String(engine.value)
     return `导出 ${label}`
   })
@@ -26,10 +27,11 @@ export function useExportProgress() {
     exportProgressPercent({ current: current.value, total: total.value }),
   )
 
-  function open(targetEngine: ExportEngineId, initialMessage = '准备导出…') {
+  function open(targetEngine: ExportEngineId, initialMessage?: string) {
     engine.value = targetEngine
     phase.value = 'prepare'
-    message.value = initialMessage
+    message.value =
+      initialMessage ?? (targetEngine === 'psd' ? '准备导入…' : '准备导出…')
     current.value = 0
     total.value = 1
     visible.value = true

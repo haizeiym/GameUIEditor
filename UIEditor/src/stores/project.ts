@@ -13,6 +13,8 @@ import {
 } from '../utils/fs'
 import { DEFAULT_COMPONENTS_JSON, createDefaultUIData, parseComponentDefs, serializeForDisk } from '../utils/node'
 import { parsePsdFile, sanitizeFsName } from '../utils/psd'
+import type { OnExportProgress } from '../utils/exportProgress'
+import { yieldToUi } from '../utils/exportProgress'
 
 /** 项目级状态：目录句柄、文件树、组件库定义、图片资产 */
 export const useProjectStore = defineStore('project', () => {
@@ -264,7 +266,7 @@ export const useProjectStore = defineStore('project', () => {
   async function importPsd(
     file: File,
     options?: {
-      onProgress?: (msg: string) => void
+      onProgress?: OnExportProgress
       /** Root 设计分辨率；默认当前编辑器分辨率 / 1366×768 */
       rootWidth?: number
       rootHeight?: number
@@ -273,6 +275,7 @@ export const useProjectStore = defineStore('project', () => {
     handle: FileSystemFileHandle
     path: string
     layerCount: number
+    uniqueImageCount: number
     documentWidth: number
     documentHeight: number
     rootWidth: number
@@ -280,25 +283,44 @@ export const useProjectStore = defineStore('project', () => {
   }> {
     if (!dirHandle.value) throw new Error('尚未打开项目')
     const onProgress = options?.onProgress
-    onProgress?.('正在解析 PSD 图层…')
     const parsed = await parsePsdFile(file, {
       rootWidth: options?.rootWidth,
       rootHeight: options?.rootHeight,
+      onProgress,
     })
 
-    onProgress?.(`正在创建目录 ${parsed.folderPath}/UI …`)
+    onProgress?.({
+      engine: 'psd',
+      phase: 'write-images',
+      message: `正在创建目录 ${parsed.folderPath}/UI …`,
+      current: 0,
+      total: Math.max(1, parsed.images.length + 1),
+    })
     await getDirectoryHandleByPath(dirHandle.value, parsed.uiFolderPath, true)
 
-    // 若同名 JSON 已存在则覆盖；图片同名也会覆盖
+    const writeTotal = Math.max(1, parsed.images.length + 1)
     for (let i = 0; i < parsed.images.length; i++) {
-      const img = parsed.images[i]
-      onProgress?.(`正在导出图片 (${i + 1}/${parsed.images.length}) ${img.fileName}`)
+      const img = parsed.images[i]!
+      onProgress?.({
+        engine: 'psd',
+        phase: 'write-images',
+        message: `正在写入图片（${i + 1}/${parsed.images.length}）${img.fileName}`,
+        current: i + 1,
+        total: writeTotal,
+      })
       const fh = await getFileHandleByPath(dirHandle.value, img.relativePath, true)
       if (!fh) throw new Error(`无法写入 ${img.relativePath}`)
       await writeBinaryFile(fh, img.bytes)
+      await yieldToUi()
     }
 
-    onProgress?.(`正在写入界面 ${parsed.jsonPath}`)
+    onProgress?.({
+      engine: 'psd',
+      phase: 'write-images',
+      message: `正在写入界面 ${parsed.jsonPath}`,
+      current: writeTotal,
+      total: writeTotal,
+    })
     const jsonHandle = await getFileHandleByPath(dirHandle.value, parsed.jsonPath, true)
     if (!jsonHandle) throw new Error(`无法写入 ${parsed.jsonPath}`)
     await writeTextFile(jsonHandle, parsed.jsonContent)
@@ -308,6 +330,7 @@ export const useProjectStore = defineStore('project', () => {
       handle: jsonHandle,
       path: parsed.jsonPath,
       layerCount: parsed.layerCount,
+      uniqueImageCount: parsed.uniqueImageCount,
       documentWidth: parsed.documentWidth,
       documentHeight: parsed.documentHeight,
       rootWidth: parsed.rootWidth,

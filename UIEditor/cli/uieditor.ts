@@ -166,7 +166,7 @@ async function cmdImportPsd(flags: Flags): Promise<void> {
   await writeFile(jsonOut, parsed.jsonContent, 'utf8')
 
   console.log(
-    `PSD 导入完成：${parsed.jsonPath}（${parsed.layerCount} 张图，PSD ${parsed.documentWidth}×${parsed.documentHeight}，Root ${parsed.rootWidth}×${parsed.rootHeight}）`,
+    `PSD 导入完成：${parsed.jsonPath}（${parsed.layerCount} 个图层，${parsed.uniqueImageCount} 张图，PSD ${parsed.documentWidth}×${parsed.documentHeight}，Root ${parsed.rootWidth}×${parsed.rootHeight}）`,
   )
 }
 
