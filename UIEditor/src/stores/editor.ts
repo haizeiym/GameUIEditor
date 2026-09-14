@@ -23,6 +23,7 @@ import {
 } from '../utils/node'
 import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
+import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -399,7 +400,15 @@ export const useEditorStore = defineStore('editor', () => {
     const node = findNodeById(currentUIData.value, nodeId)
     const def = project.componentDefs[type]
     if (!node || !def || !canAddComponent(node, type, project.componentDefs)) return
-    node.components[type] = createComponentData(def)
+    const data = createComponentData(def)
+    if (hasScriptBindProps(def)) {
+      const latest = latestScriptBind(type)
+      if (latest) {
+        data.scriptPath = latest.scriptPath
+        data.scriptUuid = latest.scriptUuid
+      }
+    }
+    node.components[type] = data
     if (type === 'SimpleListComponent') {
       ensureSimpleListHierarchy(node)
     }

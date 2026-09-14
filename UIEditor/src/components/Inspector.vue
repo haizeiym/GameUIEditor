@@ -9,6 +9,11 @@ import {
   scriptPathFromDrop,
   toastScriptMetaError,
 } from '../utils/scriptMeta'
+import {
+  hasScriptBindProps,
+  listRecentScriptBinds,
+  rememberScriptBind,
+} from '../utils/recentScriptBinds'
 import PropField from './PropField.vue'
 
 const editor = useEditorStore()
@@ -76,6 +81,7 @@ async function applyScriptPath(type: string, rawPath: string) {
   }
   comp.scriptPath = result.scriptPath
   comp.scriptUuid = result.uuid
+  rememberScriptBind(type, result.scriptPath, result.uuid)
   ElMessage.success(`已从 .meta 读取 UUID：${result.uuid}`)
   editor.commit()
 }
@@ -105,11 +111,28 @@ async function onScriptDrop(type: string, e: DragEvent) {
     const comp = node.value.components[type]!
     comp.scriptPath = dropped.scriptPath
     comp.scriptUuid = dropped.uuid
+    rememberScriptBind(type, dropped.scriptPath, dropped.uuid)
     ElMessage.success(`已从 .meta 读取 UUID：${dropped.uuid}`)
     editor.commit()
     return
   }
   await applyScriptPath(type, dropped.scriptPath)
+}
+
+function recentScripts(type: string) {
+  return hasScriptBindProps(project.componentDefs[type]) ? listRecentScriptBinds(type) : []
+}
+
+function onPickRecentScript(type: string, path: string) {
+  if (!node.value) return
+  const comp = node.value.components[type]
+  if (!comp) return
+  const hit = listRecentScriptBinds(type).find((row) => row.scriptPath === path)
+  if (!hit) return
+  comp.scriptPath = hit.scriptPath
+  comp.scriptUuid = hit.scriptUuid
+  rememberScriptBind(type, hit.scriptPath, hit.scriptUuid)
+  editor.commit()
 }
 
 function onPropCommit(type: string, propName: string) {
@@ -263,15 +286,36 @@ function onPropCommit(type: string, propName: string) {
                   >
                     {{ propDef.displayName || propName }}
                   </span>
-                  <div class="min-w-0 flex-1">
-                    <PropField
-                      v-model="node.components[type][propName]"
-                      :def="propDef"
-                      :drop-target="dropTargetFor(type, String(propName))"
-                      :node-options="propDef.type === 'node' ? nodeRefOptions : undefined"
-                      @script-drop="onScriptDrop(type, $event)"
-                      @commit="onPropCommit(type, String(propName))"
-                    />
+                  <div class="flex min-w-0 flex-1 items-stretch gap-1">
+                    <div class="min-w-0 flex-1">
+                      <PropField
+                        v-model="node.components[type][propName]"
+                        :def="propDef"
+                        :drop-target="dropTargetFor(type, String(propName))"
+                        :node-options="propDef.type === 'node' ? nodeRefOptions : undefined"
+                        @script-drop="onScriptDrop(type, $event)"
+                        @commit="onPropCommit(type, String(propName))"
+                      />
+                    </div>
+                    <el-dropdown
+                      v-if="String(propName) === 'scriptPath' && recentScripts(type).length"
+                      trigger="click"
+                      @command="onPickRecentScript(type, $event)"
+                    >
+                      <el-button size="small" title="最近绑定的脚本">最近</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item
+                            v-for="item in recentScripts(type)"
+                            :key="item.scriptPath"
+                            :command="item.scriptPath"
+                            :title="item.scriptPath"
+                          >
+                            {{ item.scriptPath.split(/[/\\]/).pop() || item.scriptPath }}
+                          </el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
                   </div>
                 </div>
               </template>
