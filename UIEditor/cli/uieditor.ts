@@ -8,7 +8,7 @@
  *   npm run cli -- export-ui --project <dir> --ui <json> --out <file>
  *   npm run cli -- validate-ui --ui <json>
  */
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { exportCocosPrefabCore } from '../src/utils/cocosPrefab'
 import { toExportBaseName } from '../src/utils/imageFileName'
@@ -194,22 +194,33 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
   }
   await mkdir(path.join(packDir, 'UI'), { recursive: true })
 
-  // 优先读仓库 codePreview/cocosPrefab.md
-  let scriptTemplateMd: string | undefined
-  const mdCandidates = [
-    path.join(process.cwd(), 'codePreview', 'cocosPrefab.md'),
-    path.join(process.cwd(), '..', 'codePreview', 'cocosPrefab.md'),
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../codePreview/cocosPrefab.md'),
+  // 读仓库 codePreview/*.md（Root.TemplateComponent.templateType 选块）
+  const codePreviewMarkdown: Record<string, string> = {}
+  const previewDirs = [
+    path.join(process.cwd(), 'codePreview'),
+    path.join(process.cwd(), '..', 'codePreview'),
+    path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../codePreview'),
   ]
-  for (const mdPath of mdCandidates) {
+  for (const dir of previewDirs) {
     try {
-      scriptTemplateMd = await readFile(mdPath, 'utf8')
-      if (scriptTemplateMd.includes('FileName')) break
-      scriptTemplateMd = undefined
+      const files = await readdir(dir)
+      let loaded = 0
+      for (const file of files) {
+        if (!file.toLowerCase().endsWith('.md')) continue
+        const stem = file.replace(/\.md$/i, '')
+        try {
+          codePreviewMarkdown[stem] = await readFile(path.join(dir, file), 'utf8')
+          loaded += 1
+        } catch {
+          /* skip one file */
+        }
+      }
+      if (loaded) break
     } catch {
-      /* try next */
+      /* try next dir */
     }
   }
+  const scriptTemplateMd = codePreviewMarkdown.cocosPrefab
 
   // 项目 components.json（SimpleList 脚本绑定等）；缺失则尝试仓库内置 config
   let componentDefs
@@ -236,6 +247,7 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
     baseName,
     root,
     scriptTemplateMd,
+    codePreviewMarkdown,
     componentDefs,
     readImageBytes: async (rel) => {
       const full = path.join(absProject, rel)

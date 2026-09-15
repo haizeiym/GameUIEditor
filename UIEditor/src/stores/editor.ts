@@ -24,6 +24,7 @@ import {
 import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
+import { latestTemplateType } from '../utils/recentTemplateTypes'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -388,7 +389,7 @@ export const useEditorStore = defineStore('editor', () => {
       console.warn(`[editor] 无法自动添加 ${companion}：组件库中没有定义`)
       return
     }
-    if (!canAddComponent(node, companion, defs)) {
+    if (!canAddComponent(node, companion, defs, node === currentUIData.value)) {
       console.warn(`[editor] 无法自动添加 ${companion}：与已有组件互斥`)
       ElMessage.warning(`无法自动添加 ${companion}：与已有组件互斥`)
       return
@@ -399,7 +400,8 @@ export const useEditorStore = defineStore('editor', () => {
   function addComponent(nodeId: string, type: string) {
     const node = findNodeById(currentUIData.value, nodeId)
     const def = project.componentDefs[type]
-    if (!node || !def || !canAddComponent(node, type, project.componentDefs)) return
+    if (!node || !def || !canAddComponent(node, type, project.componentDefs, node === currentUIData.value))
+      return
     const data = createComponentData(def)
     if (hasScriptBindProps(def)) {
       const latest = latestScriptBind(type)
@@ -407,6 +409,10 @@ export const useEditorStore = defineStore('editor', () => {
         data.scriptPath = latest.scriptPath
         data.scriptUuid = latest.scriptUuid
       }
+    }
+    if (type === 'TemplateComponent') {
+      const latest = latestTemplateType()
+      if (latest) data.templateType = latest
     }
     node.components[type] = data
     if (type === 'SimpleListComponent') {

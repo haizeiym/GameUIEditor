@@ -12,7 +12,7 @@
 
 ## 0.1 单一事实来源
 1. **本文 + 仓库内既有参考文件**是唯一规格；禁止凭「常见编辑器习惯」擅自改坐标、层级、枚举或目录约定。
-2. 脚本模板必须来自 `codePreview/cocosPrefab.md` 中的 `ts` 代码块（占位符 `FileName`）。
+2. 配套脚本模板来自 `codePreview/` 下 markdown 的指定 `###` 标题中的 `ts` 代码块（占位符 `FileName`）。缺省 `codePreview/cocosPrefab.md` 的 `### 1`；Root 上 `TemplateComponent.templateType` 可改选（§6.5）。
 3. 默认组件库以本文 **§2.4 完整 `components.json`** 为准（勿用旧示例里的 `sizeMode: CUSTOM`）。
 
 ## 0.2 锁定项（禁止分叉）
@@ -95,7 +95,7 @@ interface UINode {
 ## 2.3 组件互斥
 - `components.json` 每项可含 `componentType?: number`。
 - 规则：同名组件只能挂一个；若定义了 `componentType`，则**同 `componentType` 也只能挂一个**。
-- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`。
+- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`；**TemplateComponent 为 `1000`，仅允许挂在 Root**，不导出为 Prefab 组件。
 - **添加时的伴随组件（必须）**：
   - `ButtonComponent`：`target` 类型为 `node`，默认 `.`（当前节点）。Inspector 下拉为当前节点 + 子孙相对路径。
   - `LangSpriteComponent`：若本节点没有 `SpriteComponent` 则自动添加；因与 Label 互斥无法添加时告警，仍挂 LangSprite。
@@ -189,7 +189,7 @@ interface UINode {
 }
 ```
 
-完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel），新建项目必须写入该文件，勿只拷上面的节选。
+完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel / TemplateComponent），新建项目必须写入该文件，勿只拷上面的节选。
 
 属性类型：`string` | `number` | `boolean` | `color` | `v2` | `enum` | `node`。
 - 枚举在 JSON / 内存中存 **字符串 value**（如 `"TRIMMED"`），导出 Prefab 时再映射为引擎数值。
@@ -276,12 +276,13 @@ trim；若结果为空 → "untitled"
 
 ## 3.4 右侧 Inspector
 - 基础字段：`name`, `active`, `x`, `y`, `width`, `height`, `zIndex` +「删除节点」（Root 隐藏）。
-- 「添加组件」来自 `components.json`，受 §2.3 互斥与伴随组件规则约束。
+- 「添加组件」来自 `components.json`，受 §2.3 互斥与伴随组件规则约束。`TemplateComponent` 只出现在 Root 的添加列表。
 - `el-collapse`：标题左类型、右删组件。
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
+- **模板类型最近记录（网页）**：`TemplateComponent.templateType` 每次成功输入（trim 后非空）写入本机最近 **10** 条（`localStorage` `uieditor.recent-template-types`；同值置顶去重）。再次添加该组件时自动填最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
 
 ## 3.5 底部资源管理器
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
@@ -415,6 +416,7 @@ y = top  + height/2 - docH/2
 - `ButtonComponent` → `cc.Button`：`transition` 见 §6.4；`target` 为 `node` 引用（`.` / 空 / 本节点名 → 自身，`_target` 指向本节点 `__id__`；否则相对子孙路径）。`clickEvents` 为空（运行时 BindUI 绑定）。
 - **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
 - `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 额外写入 `_langPath: "UI"`、`_bundleName` = 包名、`_langKey` = 导出图 stem，运行时加载 `UI/{lang}/{key}`。图片目录见 §6.2。
+- `TemplateComponent`：**不**写入 Prefab 组件，只影响配套 `.ts` 模板选择（§6.5）。只读 Root 上的实例；子节点上的忽略。
 - 无上述组件则仅 Node + UITransform。
 - 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本|Button|Lang 脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
 - 子节点顺序 = JSON `children` 原序。
@@ -433,8 +435,18 @@ y = top  + height/2 - docH/2
 FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
 ## 6.5 配套脚本
-- 读取 `codePreview/cocosPrefab.md` 的 `ts` 块，全部 `FileName` → **包标识名**（§6.1，如 `test` / `ZhuJieMian`）。
-- 网页与 CLI 均须生成；CLI 优先读磁盘 md，否则内置兜底同一模板。
+由 **Root** 上 `TemplateComponent.templateType`（缺省 `"1"`，空等同缺省）选择 `codePreview/` 里的 ts 模板，再把全部 `FileName` → **包标识名**（§6.1，如 `test` / `ZhuJieMian`）。网页与 CLI 均须生成；CLI 读磁盘 `codePreview/*.md`，缺 `cocosPrefab.md` 时用内置兜底（与 `### 1` 同步）。
+
+**取值（trim 后）**：
+| `templateType` | 文档 | 标题 |
+|---|---|---|
+| 空 / 未挂组件 | `codePreview/cocosPrefab.md` | `### 1` |
+| 不含 `_` 的字符串（如 `1`、`2`） | 同上 `cocosPrefab.md` | `### {该字符串}` |
+| `xxx_aaa`（第一个 `_` 切开） | `codePreview/xxx.md` | `### aaa` |
+
+标题下第一个 TypeScript 围栏代码块（语言标记 `ts` 或 `typescript`）为模板正文。找不到文档或标题/代码块则导出失败（禁止静默改用别的块）。`xxx` 只允许 `[A-Za-z0-9._-]`、不以 `.` 开头、不含 `..`。
+
+Inspector 文案用短名「模板类型（仅 Root）」；细则以本节为准，不要把整段规则塞进 `displayName`。网页记住最近 10 条输入（§3.4）。
 
 ## 6.6 验收
 - 拷入空 Creator 3.8 工程 `assets`：无缺失引用；可打开 Prefab；层级/位置（含 Y 翻转）/贴图/枚举与编辑器一致；根已挂同名脚本。
@@ -503,6 +515,7 @@ uieditor --help
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
+17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。`templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`（缺文件则失败）。输入后「最近」最多 10 条，刷新仍在；再添加自动填最近一条。
 
 ---
 

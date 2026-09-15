@@ -178,6 +178,16 @@ const FALLBACK_COMPONENTS_JSON = `{
       "scriptUuid": { "type": "string", "default": "", "displayName": "脚本UUID" }
     },
     "componentType": 6
+  },
+  "TemplateComponent": {
+    "properties": {
+      "templateType": {
+        "type": "string",
+        "default": "1",
+        "displayName": "模板类型（仅 Root）"
+      }
+    },
+    "componentType": 1000
   }
 }
 `

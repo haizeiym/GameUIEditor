@@ -49,7 +49,9 @@ export function canAddComponent(
   node: UINode,
   type: string,
   defs: ComponentDefs,
+  isRoot = false,
 ): boolean {
+  if (type === 'TemplateComponent' && !isRoot) return false
   if (node.components[type]) return false
   const def = defs[type]
   if (!def) return false

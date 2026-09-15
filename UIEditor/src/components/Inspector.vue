@@ -14,6 +14,10 @@ import {
   listRecentScriptBinds,
   rememberScriptBind,
 } from '../utils/recentScriptBinds'
+import {
+  listRecentTemplateTypes,
+  rememberTemplateType,
+} from '../utils/recentTemplateTypes'
 import PropField from './PropField.vue'
 
 const editor = useEditorStore()
@@ -26,7 +30,7 @@ const nodeRefOptions = computed(() => (node.value ? collectNodeRefOptions(node.v
 const availableComponents = computed(() => {
   if (!node.value) return []
   return Object.keys(project.componentDefs).filter((t) =>
-    canAddComponent(node.value!, t, project.componentDefs),
+    canAddComponent(node.value!, t, project.componentDefs, editor.isRootSelected),
   )
 })
 
@@ -119,8 +123,33 @@ async function onScriptDrop(type: string, e: DragEvent) {
   await applyScriptPath(type, dropped.scriptPath)
 }
 
-function recentScripts(type: string) {
-  return hasScriptBindProps(project.componentDefs[type]) ? listRecentScriptBinds(type) : []
+function recentMenu(type: string, propName: string): { command: string; label: string }[] {
+  if (propName === 'scriptPath') {
+    if (!hasScriptBindProps(project.componentDefs[type])) return []
+    return listRecentScriptBinds(type).map((item) => ({
+      command: item.scriptPath,
+      label: item.scriptPath.split(/[/\\]/).pop() || item.scriptPath,
+    }))
+  }
+  if (propName === 'templateType') {
+    return listRecentTemplateTypes().map((item) => ({ command: item, label: item }))
+  }
+  return []
+}
+
+function onRecentCommand(type: string, propName: string, command: string) {
+  if (propName === 'scriptPath') {
+    onPickRecentScript(type, command)
+    return
+  }
+  if (propName === 'templateType') {
+    if (!node.value) return
+    const comp = node.value.components[type]
+    if (!comp) return
+    comp.templateType = command
+    rememberTemplateType(command)
+    editor.commit()
+  }
 }
 
 function onPickRecentScript(type: string, path: string) {
@@ -139,6 +168,10 @@ function onPropCommit(type: string, propName: string) {
   if (propName === 'scriptPath') {
     void onScriptPathCommit(type)
     return
+  }
+  if (propName === 'templateType' && node.value) {
+    const raw = node.value.components[type]?.templateType
+    if (typeof raw === 'string') rememberTemplateType(raw)
   }
   editor.commit()
 }
@@ -298,26 +331,29 @@ function onPropCommit(type: string, propName: string) {
                       />
                     </div>
                     <el-dropdown
-                      v-if="String(propName) === 'scriptPath' && recentScripts(type).length"
+                      v-if="recentMenu(type, String(propName)).length"
                       trigger="click"
-                      @command="onPickRecentScript(type, $event)"
+                      @command="onRecentCommand(type, String(propName), $event)"
                     >
-                      <el-button size="small" title="最近绑定的脚本">最近</el-button>
+                      <el-button size="small" title="最近记录">最近</el-button>
                       <template #dropdown>
                         <el-dropdown-menu>
                           <el-dropdown-item
-                            v-for="item in recentScripts(type)"
-                            :key="item.scriptPath"
-                            :command="item.scriptPath"
-                            :title="item.scriptPath"
+                            v-for="item in recentMenu(type, String(propName))"
+                            :key="item.command"
+                            :command="item.command"
+                            :title="item.command"
                           >
-                            {{ item.scriptPath.split(/[/\\]/).pop() || item.scriptPath }}
+                            {{ item.label }}
                           </el-dropdown-item>
                         </el-dropdown-menu>
                       </template>
                     </el-dropdown>
                   </div>
                 </div>
+                <p v-if="type === 'TemplateComponent'" class="text-[11px] leading-snug text-zinc-500">
+                  仅 Root 生效。空或「1」→ codePreview/cocosPrefab.md 的 ### 1；「2」→ 同文件 ### 2；「list_item」→ codePreview/list.md 的 ### item。导出时 FileName 换成包名。
+                </p>
               </template>
               <p v-else class="text-xs text-zinc-500">
                 组件库中没有 "{{ type }}" 的定义，数据以只读方式保留。

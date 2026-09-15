@@ -14,7 +14,11 @@ import {
   writeTextFile,
 } from './fs'
 import { uniqueImageFileName, toExportBaseName } from './imageFileName'
-import { buildPrefabScriptSource, buildTypescriptMeta } from './prefabTsTemplate'
+import {
+  buildPrefabScriptSource,
+  buildTypescriptMeta,
+  readRootTemplateType,
+} from './prefabTsTemplate'
 import { findDescendantByPath, resolveNodeRef, resolveScriptBindField } from './uiNode'
 
 const UI_2D_LAYER = 1073741824
@@ -52,6 +56,8 @@ export interface CocosPrefabExportCoreOptions {
   fs: PrefabWriteFs
   /** 可选：覆盖 codePreview/cocosPrefab.md 模板原文（CLI 从磁盘注入） */
   scriptTemplateMd?: string
+  /** CLI：codePreview 目录下 stem → markdown；网页走 Vite glob */
+  codePreviewMarkdown?: Record<string, string>
   /** 组件库定义（SimpleList 等需 scriptName/Path/Uuid 才能绑定脚本） */
   componentDefs?: ComponentDefs
   /** 导出进度（与 UI 解耦；网页进度框 / CLI 日志均可接入） */
@@ -1073,8 +1079,11 @@ export async function exportCocosPrefabCore(
   )
 
   await report('write-script', `写出配套脚本：${baseName}.ts`)
-  // 旁路脚本：codePreview/cocosPrefab.md，FileName → 界面名；Prefab 根已引用同 UUID
-  const scriptSource = buildPrefabScriptSource(baseName, options.scriptTemplateMd)
+  const scriptSource = buildPrefabScriptSource(baseName, {
+    templateType: readRootTemplateType(root),
+    markdownByStem: options.codePreviewMarkdown,
+    templateMd: options.scriptTemplateMd,
+  })
   await fs.writeText(`${baseName}/${baseName}.ts`, scriptSource)
   await fs.writeText(
     `${baseName}/${baseName}.ts.meta`,
