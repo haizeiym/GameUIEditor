@@ -281,7 +281,7 @@ trim；若结果为空 → "untitled"
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
-- `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`，或粘贴绝对/项目相对路径。解析 `File.path`、`file://`、以及拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。拖入时缓存文件正文（打包后导出靠这份缓存；开发态仍可走 `/__local_fs`）。
+- `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`、粘贴本机/项目相对路径，或 **http(s) 远程 `.md` 地址**（pathname 以 `.md` 结尾，可带 query）。解析 `File.path`、`file://`、拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。本地拖入会缓存正文（打包后无 `/__local_fs` 时用）。远程地址**不缓存**，每次导出先下载。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
 - **模板类型 / 路径最近记录（网页）**：`templateType`、`templatePath` 各自记住最近 **10** 条非空输入（`uieditor.recent-template-types` / `uieditor.recent-template-paths`；同值置顶去重）。再次添加 `TemplateComponent` 时自动填各自最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
 
@@ -438,13 +438,15 @@ FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 ## 6.5 配套脚本
 由 **Root** 上 `TemplateComponent` 选择 ts 模板，再把全部 `FileName` → **包标识名**（§6.1）。网页与 CLI 均须生成。`TemplateComponent` 不写入 Prefab 组件。
 
-**`templatePath`（trim，`\` → `/`）**：
+**`templatePath`（trim；本地路径 `\` → `/`）**：
 - 空：按下面「无路径」规则从仓库 `codePreview/` 取文档。
-- 非空：必须是 `.md` 文件（本机绝对路径或项目相对路径）。读该文件全文；此时 **`templateType` 只在该文档内选标题，整串对照 `###`，不按下划线拆文件**。
+- **http:// 或 https://**：视为远程模板。pathname 必须 `.md`（忽略 `?query` / `#hash`）。**导出开始时先下载**（网页进度框 `phase: download-template`，按字节更新百分比；超时 30s，上限 2MB）。GitHub 请用 `raw.githubusercontent.com`，不要用 blob HTML 页。下载失败则整次导出失败、不写包。远程**每次导出都重新拉**，不走本地缓存。
+- 其它非空：必须是本地 `.md`（本机绝对路径或项目相对路径）。读该文件全文。
+- 有路径（本地或远程）时 **`templateType` 只在该文档内选标题，整串对照 `###`，不按下划线拆文件**：
   - 空 / `1` → 该文件的 `### 1`
   - `xxx_aaa` → 该文件的 `### xxx_aaa`（**不是** `codePreview/xxx.md` 的 `### aaa`）
-- 读不到文件或不是 `.md` 则导出失败。
-- **网页读盘**：开发态可用 `/__local_fs` 读绝对路径。**打包后没有该接口**，不能凭路径直接读 `/Users/...`。须拖入 `.md`（缓存正文到 `uieditor.template-md-cache`）或导出时再选一次文件。CLI 仍直接读盘。
+- 读不到 / 下载失败 / 不是 `.md` 则导出失败。
+- **网页本地读盘**：开发态可用 `/__local_fs` 读绝对路径。**打包后没有该接口**，须拖入 `.md`（缓存到 `uieditor.template-md-cache`）或导出时再选文件。CLI 本地路径直接读盘；远程同样先下载。
 
 **无 `templatePath` 时的 `templateType`（trim）**：
 | `templateType` | 文档 | 标题 |
@@ -466,9 +468,9 @@ Inspector 用短名「模板类型 / 模板路径（仅 Root）」；细则以�
 - **目的**：网页导出 Prefab、**导入 PSD**（§5.8）共用进度框；禁止把进度框写死在某一引擎导出里。
 - **事件形状**（`ExportProgressEvent`，纯数据，无 Vue / Element Plus）：
   - `engine`：目标 id（如 `"cocos"` / `"psd"`；新增时扩展 `EXPORT_ENGINE_LABELS`）
-  - `phase`：阶段 key（导出：`prepare` / `read-images` / `write-images` / …；导入 PSD：`prepare` / `hash-images` / `write-images` / `done`）
-  - `message`：用户可见文案
-  - `current` / `total`：线性步进（`percent = round(current/total*100)`）
+  - `phase`：阶段 key（导出：`download-template` / `prepare` / `read-images` / `write-images` / …；导入 PSD：`prepare` / `hash-images` / `write-images` / `done`）
+  - `message`：用户可见文案（下载阶段含百分比与已下字节）
+  - `current` / `total`：线性步进（`percent = round(current/total*100)`）。远程模板时前 100 格映射下载字节，随后才是读图/写盘。
 - **分层**：
   1. 核心（`parsePsdBuffer` / `exportCocosPrefabCore` 等）只接收可选 `onProgress?: (e) => void`，每步报告并 `yield` 主线程。
   2. `useExportProgress` + `ExportProgressDialog`：通用进度框；默认**首条进度再弹出**（先选目录 / 确认覆盖）。导入 PSD 在已选文件后可立即弹出。
@@ -492,7 +494,7 @@ uieditor --help
 ```
 
 - `import-psd`：行为同第五节；默认禁止覆盖，`--force` 可覆盖。
-- `export-prefab`：行为同第六节；缺图/非法 JSON 失败。
+- `export-prefab`：行为同第六节；缺图/非法 JSON 失败。`templatePath` 为 http(s) 时先下载再导出。
 - `export-ui`：规范化后另存（剥离 `_id`）。
 - `validate-ui`：校验 Root / 基础字段 / 组件结构。
 
@@ -524,7 +526,7 @@ uieditor --help
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
-17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。Finder 拖入 `.md` 能写入路径。打包后导出用拖入时缓存的正文（无缓存则弹出选文件）。类型与路径各「最近」最多 10 条，再添加自动填。
+17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath`（本机 / 相对 / `https://…/*.md`）则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。远程地址导出前下载，进度框显示下载百分比。Finder 拖入 `.md` 能写入路径。打包后本地路径用拖入缓存（无缓存则选文件）。类型与路径各「最近」最多 10 条，再添加自动填。
 
 ---
 

@@ -7,6 +7,7 @@ import {
   createExportProgressReporter,
   type OnExportProgress,
 } from './exportProgress'
+import { downloadTextWithProgress, formatByteSize } from './downloadText'
 import {
   getDirectoryHandleByPath,
   getFileHandleByPath,
@@ -18,6 +19,7 @@ import {
   buildPrefabScriptSource,
   buildTypescriptMeta,
   isMarkdownTemplatePath,
+  isRemoteTemplateUrl,
   readRootTemplatePath,
   readRootTemplateType,
 } from './prefabTsTemplate'
@@ -60,7 +62,7 @@ export interface CocosPrefabExportCoreOptions {
   scriptTemplateMd?: string
   /** CLI：codePreview 目录下 stem → markdown；网页走 Vite glob */
   codePreviewMarkdown?: Record<string, string>
-  /** 读取 templatePath 指向的 .md（绝对路径或项目相对路径） */
+  /** 读取 templatePath 指向的本地 .md（绝对路径或项目相对路径）；远程 http(s) 由核心自行下载 */
   readText?: (path: string) => Promise<string | null>
   /** 组件库定义（SimpleList 等需 scriptName/Path/Uuid 才能绑定脚本） */
   componentDefs?: ComponentDefs
@@ -74,7 +76,7 @@ export interface CocosPrefabExportOptions {
   root: UINode
   /** 按项目相对路径读取图片 */
   readImage: (path: string) => Promise<File | null>
-  /** 读取 templatePath（绝对路径或项目相对路径） */
+  /** 读取 templatePath（本地路径）；远程 URL 由核心下载 */
   readText?: (path: string) => Promise<string | null>
   componentDefs?: ComponentDefs
   onProgress?: OnExportProgress
@@ -993,9 +995,49 @@ export async function exportCocosPrefabCore(
 
   const readN = uniqueSources.length
   const writeN = jobs.length
-  // prepare + 读图 + 写目录 + 写图 + prefab + script + done
-  const totalSteps = 1 + readN + 1 + writeN + 1 + 1 + 1
+  const templatePath = readRootTemplatePath(root)
+  const remoteTemplate = Boolean(templatePath) && isRemoteTemplateUrl(templatePath)
+  const downloadCap = remoteTemplate ? 100 : 0
+  // （可选下载 100 格）+ prepare + 读图 + 写目录 + 写图 + prefab + script + done
+  const totalSteps = downloadCap + 1 + readN + 1 + writeN + 1 + 1 + 1
   const report = createExportProgressReporter('cocos', totalSteps, options.onProgress)
+
+  let sourceMd: string | undefined
+  if (templatePath) {
+    if (!isMarkdownTemplatePath(templatePath)) {
+      throw new Error(`templatePath 必须指向 .md 文件或 https://…/*.md：${templatePath}`)
+    }
+    if (remoteTemplate) {
+      await report.set(1, 'download-template', `开始下载模板：${templatePath}`)
+      sourceMd = await downloadTextWithProgress(templatePath, async (loaded, totalBytes) => {
+        const fraction =
+          totalBytes && totalBytes > 0
+            ? loaded / totalBytes
+            : Math.min(0.99, loaded / (512 * 1024))
+        const cur = Math.max(1, Math.min(downloadCap - 1, Math.round(fraction * downloadCap)))
+        const sizePart =
+          totalBytes && totalBytes > 0
+            ? `${formatByteSize(loaded)} / ${formatByteSize(totalBytes)}`
+            : formatByteSize(loaded)
+        const pct = Math.round(fraction * 100)
+        await report.set(
+          cur,
+          'download-template',
+          `下载模板 ${pct}%（${sizePart}）`,
+        )
+      })
+      await report.set(downloadCap, 'download-template', '模板下载完成')
+    } else {
+      if (!options.readText) {
+        throw new Error(`无法读取模板文件（缺少 readText）：${templatePath}`)
+      }
+      const text = await options.readText(templatePath)
+      if (text == null || !text.length) {
+        throw new Error(`读不到模板文件：${templatePath}`)
+      }
+      sourceMd = text
+    }
+  }
 
   await report('prepare', `准备导出「${baseName}」…`)
 
@@ -1085,21 +1127,6 @@ export async function exportCocosPrefabCore(
   )
 
   await report('write-script', `写出配套脚本：${baseName}.ts`)
-  const templatePath = readRootTemplatePath(root)
-  let sourceMd: string | undefined
-  if (templatePath) {
-    if (!isMarkdownTemplatePath(templatePath)) {
-      throw new Error(`templatePath 必须指向 .md 文件：${templatePath}`)
-    }
-    if (!options.readText) {
-      throw new Error(`无法读取模板文件（缺少 readText）：${templatePath}`)
-    }
-    const text = await options.readText(templatePath)
-    if (text == null || !text.length) {
-      throw new Error(`读不到模板文件：${templatePath}`)
-    }
-    sourceMd = text
-  }
   const scriptSource = buildPrefabScriptSource(baseName, {
     templateType: readRootTemplateType(root),
     sourceMd,

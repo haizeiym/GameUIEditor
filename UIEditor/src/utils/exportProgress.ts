@@ -9,7 +9,7 @@ export type ExportEngineId = 'cocos' | (string & {})
 export interface ExportProgressEvent {
   /** 目标引擎，如 cocos；进度框标题可据此映射 */
   engine: ExportEngineId
-  /** 阶段 key：prepare | read-images | write-images | write-prefab | write-script | done */
+  /** 阶段 key：download-template | prepare | read-images | write-images | write-prefab | write-script | done */
   phase: string
   /** 面向用户的阶段说明 */
   message: string
@@ -33,16 +33,20 @@ export function yieldToUi(): Promise<void> {
   })
 }
 
+/** 线性步进；`.set` 用于下载字节映射到前 N 格（不打乱后续 step） */
+export type ExportStepReporter = ((phase: string, message: string) => Promise<void>) & {
+  set: (current: number, phase: string, message: string) => Promise<void>
+}
+
 /** 线性步进进度报告器 */
 export function createExportProgressReporter(
   engine: ExportEngineId,
   total: number,
   onProgress?: OnExportProgress,
-): (phase: string, message: string) => Promise<void> {
+): ExportStepReporter {
   const safeTotal = Math.max(1, total)
   let current = 0
-  return async (phase: string, message: string) => {
-    current = Math.min(current + 1, safeTotal)
+  const emit = async (phase: string, message: string) => {
     onProgress?.({
       engine,
       phase,
@@ -52,6 +56,15 @@ export function createExportProgressReporter(
     })
     await yieldToUi()
   }
+  const step = (async (phase: string, message: string) => {
+    current = Math.min(current + 1, safeTotal)
+    await emit(phase, message)
+  }) as ExportStepReporter
+  step.set = async (next, phase, message) => {
+    current = Math.min(safeTotal, Math.max(0, Math.round(next)))
+    await emit(phase, message)
+  }
+  return step
 }
 
 /** 常见引擎展示名（进度框标题用） */

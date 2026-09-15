@@ -93,7 +93,7 @@ const placeholder = computed(() => {
   if (dropKind.value === 'image') return '可从下方资源管理器拖入图片'
   if (dropKind.value === 'script')
     return '拖入 .ts 或 .ts.meta；Mac 上可再选同目录 .meta 文件'
-  if (dropKind.value === 'markdown') return '拖入 .md 模板文件，或粘贴绝对路径'
+  if (dropKind.value === 'markdown') return '拖入 .md、本机路径或 https://…/*.md'
   return ''
 })
 

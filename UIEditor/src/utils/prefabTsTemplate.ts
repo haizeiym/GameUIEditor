@@ -94,8 +94,25 @@ export function readRootTemplatePath(root: UINode): string {
   return typeof raw === 'string' ? raw.trim().replace(/\\/g, '/') : ''
 }
 
+export function isRemoteTemplateUrl(raw: string): boolean {
+  return /^https?:\/\//i.test(raw.trim())
+}
+
+/** 本地 .md，或 http(s) 且 pathname 以 .md 结尾（忽略 query/hash） */
 export function isMarkdownTemplatePath(p: string): boolean {
-  return p.trim().toLowerCase().replace(/\\/g, '/').endsWith('.md')
+  const s = p.trim()
+  if (!s) return false
+  if (isRemoteTemplateUrl(s)) {
+    try {
+      const u = new URL(s)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+      return u.pathname.toLowerCase().endsWith('.md')
+    } catch {
+      return false
+    }
+  }
+  const noQuery = s.split('?')[0]?.split('#')[0] ?? s
+  return noQuery.toLowerCase().replace(/\\/g, '/').endsWith('.md')
 }
 
 function loadVitePreviewMarkdown(): Record<string, string> {

@@ -5,12 +5,12 @@ import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
 import { canAddComponent, collectNodeRefOptions } from '../utils/node'
 import {
-  isMarkdownFileName,
   markdownPathFromDrop,
   resolveScriptMetaUuid,
   scriptPathFromDrop,
   toastScriptMetaError,
 } from '../utils/scriptMeta'
+import { isMarkdownTemplatePath, isRemoteTemplateUrl } from '../utils/prefabTsTemplate'
 import {
   hasScriptBindProps,
   listRecentScriptBinds,
@@ -110,15 +110,16 @@ async function onScriptPathCommit(type: string) {
 }
 
 async function applyTemplatePath(type: string, rawPath: string, text?: string) {
-  const md = rawPath.trim().replace(/\\/g, '/')
-  if (!md || !isMarkdownFileName(md)) {
-    ElMessage.error('请填入 .md 模板文件路径')
+  const trimmed = rawPath.trim()
+  const md = isRemoteTemplateUrl(trimmed) ? trimmed : trimmed.replace(/\\/g, '/')
+  if (!isMarkdownTemplatePath(md)) {
+    ElMessage.error('请填入 .md 路径、本机文件或 https://…/*.md')
     return
   }
   if (!node.value) return
   const comp = node.value.components[type]
   if (!comp) return
-  if (text?.trim()) rememberTemplateMd(md, text)
+  if (text?.trim() && !isRemoteTemplateUrl(md)) rememberTemplateMd(md, text)
   comp.templatePath = md
   rememberTemplatePath(md)
   editor.commit()
@@ -430,7 +431,7 @@ function onPropCommit(type: string, propName: string) {
                   </div>
                 </div>
                 <p v-if="type === 'TemplateComponent'" class="text-[11px] leading-snug text-zinc-500">
-                  仅 Root 生效。无路径：空/「1」→ codePreview/cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md，templateType 原样对应标题（「xxx_aaa」→ ### xxx_aaa，不拆文件）；空类型等同 ### 1。可拖入 Finder 的 .md。导出时 FileName 换成包名。
+                  仅 Root 生效。无路径：空/「1」→ codePreview/cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md（本机 / 项目相对 / https://…/*.md），templateType 原样对应标题（「xxx_aaa」→ ### xxx_aaa）。远程地址导出前下载并走进度框。导出时 FileName 换成包名。
                 </p>
               </template>
               <p v-else class="text-xs text-zinc-500">
