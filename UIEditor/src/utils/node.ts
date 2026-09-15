@@ -185,6 +185,11 @@ const FALLBACK_COMPONENTS_JSON = `{
         "type": "string",
         "default": "1",
         "displayName": "模板类型（仅 Root）"
+      },
+      "templatePath": {
+        "type": "string",
+        "default": "",
+        "displayName": "模板路径（仅 Root）"
       }
     },
     "componentType": 1000

@@ -24,7 +24,8 @@ import {
 import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
-import { latestTemplateType } from '../utils/recentTemplateTypes'
+import { latestTemplatePath, latestTemplateType } from '../utils/recentTemplateTypes'
+import { isAbsoluteFsPath, readLocalFsText } from '../utils/scriptMeta'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -321,6 +322,12 @@ export const useEditorStore = defineStore('editor', () => {
       baseName,
       root: currentUIData.value,
       readImage: (path) => project.getFileByPath(path),
+      readText: async (p) => {
+        const file = await project.getFileByPath(p)
+        if (file) return file.text()
+        if (isAbsoluteFsPath(p)) return readLocalFsText(p)
+        return null
+      },
       componentDefs: project.componentDefs,
       onProgress,
     })
@@ -411,8 +418,10 @@ export const useEditorStore = defineStore('editor', () => {
       }
     }
     if (type === 'TemplateComponent') {
-      const latest = latestTemplateType()
-      if (latest) data.templateType = latest
+      const latestType = latestTemplateType()
+      if (latestType) data.templateType = latestType
+      const latestPath = latestTemplatePath()
+      if (latestPath) data.templatePath = latestPath
     }
     node.components[type] = data
     if (type === 'SimpleListComponent') {

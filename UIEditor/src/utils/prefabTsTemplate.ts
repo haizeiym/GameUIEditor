@@ -51,6 +51,11 @@ export interface PrefabTemplateRef {
 export interface BuildPrefabScriptOptions {
   /** Root.TemplateComponent.templateType */
   templateType?: string
+  /**
+   * 若已读到 templatePath 指向的 .md 正文：templateType 整串作为该文档内 ### 标题
+   *（`xxx_aaa` → `### xxx_aaa`，不按下划线拆成 codePreview/xxx.md）。
+   */
+  sourceMd?: string
   /** CLI 注入的 stem → markdown 原文 */
   markdownByStem?: Record<string, string>
   /** 覆盖 cocosPrefab.md（兼容旧 CLI） */
@@ -82,6 +87,15 @@ export function parseTemplateType(raw: unknown): PrefabTemplateRef {
 export function readRootTemplateType(root: UINode): string {
   const raw = root.components['TemplateComponent']?.templateType
   return typeof raw === 'string' ? raw.trim() : ''
+}
+
+export function readRootTemplatePath(root: UINode): string {
+  const raw = root.components['TemplateComponent']?.templatePath
+  return typeof raw === 'string' ? raw.trim().replace(/\\/g, '/') : ''
+}
+
+export function isMarkdownTemplatePath(p: string): boolean {
+  return p.trim().toLowerCase().replace(/\\/g, '/').endsWith('.md')
 }
 
 function loadVitePreviewMarkdown(): Record<string, string> {
@@ -144,6 +158,11 @@ export function loadCocosPrefabTemplateMd(overrideMd?: string): string {
 }
 
 function resolveTemplateTs(options?: BuildPrefabScriptOptions): string {
+  if (options?.sourceMd?.trim()) {
+    // 有 templatePath：标题 = templateType 原样（空 → 1）；禁止 xxx_aaa 拆文件
+    const heading = (options.templateType ?? '').trim() || '1'
+    return extractTsBlockByHeading(options.sourceMd, heading)
+  }
   const ref = parseTemplateType(options?.templateType)
   const md = loadPreviewMarkdown(ref.fileStem, options)
   return extractTsBlockByHeading(md, ref.heading)

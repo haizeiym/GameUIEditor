@@ -17,6 +17,8 @@ import { uniqueImageFileName, toExportBaseName } from './imageFileName'
 import {
   buildPrefabScriptSource,
   buildTypescriptMeta,
+  isMarkdownTemplatePath,
+  readRootTemplatePath,
   readRootTemplateType,
 } from './prefabTsTemplate'
 import { findDescendantByPath, resolveNodeRef, resolveScriptBindField } from './uiNode'
@@ -58,6 +60,8 @@ export interface CocosPrefabExportCoreOptions {
   scriptTemplateMd?: string
   /** CLI：codePreview 目录下 stem → markdown；网页走 Vite glob */
   codePreviewMarkdown?: Record<string, string>
+  /** 读取 templatePath 指向的 .md（绝对路径或项目相对路径） */
+  readText?: (path: string) => Promise<string | null>
   /** 组件库定义（SimpleList 等需 scriptName/Path/Uuid 才能绑定脚本） */
   componentDefs?: ComponentDefs
   /** 导出进度（与 UI 解耦；网页进度框 / CLI 日志均可接入） */
@@ -70,6 +74,8 @@ export interface CocosPrefabExportOptions {
   root: UINode
   /** 按项目相对路径读取图片 */
   readImage: (path: string) => Promise<File | null>
+  /** 读取 templatePath（绝对路径或项目相对路径） */
+  readText?: (path: string) => Promise<string | null>
   componentDefs?: ComponentDefs
   onProgress?: OnExportProgress
 }
@@ -1079,8 +1085,24 @@ export async function exportCocosPrefabCore(
   )
 
   await report('write-script', `写出配套脚本：${baseName}.ts`)
+  const templatePath = readRootTemplatePath(root)
+  let sourceMd: string | undefined
+  if (templatePath) {
+    if (!isMarkdownTemplatePath(templatePath)) {
+      throw new Error(`templatePath 必须指向 .md 文件：${templatePath}`)
+    }
+    if (!options.readText) {
+      throw new Error(`无法读取模板文件（缺少 readText）：${templatePath}`)
+    }
+    const text = await options.readText(templatePath)
+    if (text == null || !text.length) {
+      throw new Error(`读不到模板文件：${templatePath}`)
+    }
+    sourceMd = text
+  }
   const scriptSource = buildPrefabScriptSource(baseName, {
     templateType: readRootTemplateType(root),
+    sourceMd,
     markdownByStem: options.codePreviewMarkdown,
     templateMd: options.scriptTemplateMd,
   })
@@ -1118,6 +1140,7 @@ export async function exportCocosPrefab(
     root,
     componentDefs: options.componentDefs,
     onProgress: options.onProgress,
+    readText: options.readText,
     readImageBytes: async (path) => {
       const file = await readImage(path)
       if (!file) return null

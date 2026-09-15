@@ -249,6 +249,14 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
     scriptTemplateMd,
     codePreviewMarkdown,
     componentDefs,
+    readText: async (p) => {
+      const full = path.isAbsolute(p) ? p : path.join(absProject, p)
+      try {
+        return await readFile(full, 'utf8')
+      } catch {
+        return null
+      }
+    },
     readImageBytes: async (rel) => {
       const full = path.join(absProject, rel)
       try {

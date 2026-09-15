@@ -14,6 +14,16 @@ export function isScriptFileName(name: string): boolean {
   return SCRIPT_EXTS.some((ext) => lower.endsWith(ext))
 }
 
+export function isMarkdownFileName(name: string): boolean {
+  return name.toLowerCase().replace(/\\/g, '/').endsWith('.md')
+}
+
+function nativeFilePath(file: File | null | undefined): string {
+  if (!file) return ''
+  const p = (file as File & { path?: string }).path
+  return typeof p === 'string' ? p.trim() : ''
+}
+
 /** 去掉 db:// 前缀，得到可用于查找的路径 */
 export function normalizeScriptPath(raw: string): string {
   let p = raw.trim()
@@ -41,17 +51,24 @@ function parseUuidFromMetaText(text: string): string | null {
   return null
 }
 
-function isAbsoluteFsPath(p: string): boolean {
+export function isAbsoluteFsPath(p: string): boolean {
   return p.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(p)
+}
+
+export function droppedFilePaths(e: DragEvent): string[] {
+  return collectDropPathCandidates(e.dataTransfer)
 }
 
 /** file:///Users/x/a.ts → /Users/x/a.ts；Windows file:///C:/x → C:/x */
 export function fileUrlToFsPath(url: string): string | null {
   const raw = url.trim()
   if (!raw.toLowerCase().startsWith('file:')) return null
+  // macOS 书签 file:///.file/id=… 不是可读路径
+  if (/^file:\/\/\/\.file\//i.test(raw)) return null
   try {
     // 保留 decode，处理空格 %20 等
     let path = decodeURIComponent(raw.replace(/^file:\/\//i, ''))
+    path = path.replace(/^localhost/i, '')
     // Chrome Windows 常给出 /C:/Users/...
     if (/^\/[a-zA-Z]:[\\/]/.test(path)) path = path.slice(1)
     path = path.replace(/\\/g, '/')
@@ -59,6 +76,32 @@ export function fileUrlToFsPath(url: string): string | null {
   } catch {
     return null
   }
+}
+
+/** 从任意拖放文本里抠出可用的 .md 文件系统路径 */
+export function extractMarkdownFsPath(text: string): string | null {
+  const raw = text.trim()
+  if (!raw) return null
+  const fromUrl = fileUrlToFsPath(raw)
+  if (fromUrl && isUsableMarkdownPath(fromUrl)) return fromUrl
+  const normalized = raw.replace(/\\/g, '/')
+  if (isUsableMarkdownPath(normalized)) return normalized
+  const urlMatch = raw.match(/file:\/\/[^\s"'<>]+/i)
+  if (urlMatch) {
+    const p = fileUrlToFsPath(urlMatch[0])
+    if (p && isUsableMarkdownPath(p)) return p
+  }
+  const posix = raw.match(/(^|[\s"'=(])(\/[^\s"'<>]+\.md)/i)
+  if (posix?.[2] && isUsableMarkdownPath(posix[2])) return posix[2]
+  const win = raw.match(/([a-zA-Z]:[\\/][^\s"'<>]+\.md)/i)
+  if (win?.[1]) return win[1].replace(/\\/g, '/')
+  return null
+}
+
+function isUsableMarkdownPath(p: string): boolean {
+  const n = p.trim().replace(/\\/g, '/')
+  if (!isMarkdownFileName(n)) return false
+  return n.includes('/') || isAbsoluteFsPath(n)
 }
 
 /** 从 DataTransfer 收集可能的绝对/相对路径（优先 file://） */
@@ -73,24 +116,117 @@ function collectDropPathCandidates(dt: DataTransfer | null): string[] {
     out.push(t)
   }
 
-  // 1) Finder / 资源管理器拖入：text/uri-list → file:///绝对路径
-  const uriList = dt.getData('text/uri-list') || ''
-  for (const line of uriList.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const fsPath = fileUrlToFsPath(trimmed)
-    if (fsPath) push(fsPath)
-    else push(trimmed)
+  const ingestText = (text: string) => {
+    if (!text) return
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const md = extractMarkdownFsPath(trimmed)
+      if (md) push(md)
+      else {
+        const fsPath = fileUrlToFsPath(trimmed)
+        push(fsPath || trimmed)
+      }
+    }
   }
 
+  // 1) Finder / 资源管理器拖入：text/uri-list → file:///绝对路径
+  ingestText(dt.getData('text/uri-list') || '')
+
   // 2) text/plain：可能是绝对路径、项目相对路径、或 file://
-  const plain = dt.getData('text/plain')?.trim() || ''
-  if (plain) {
-    const asFile = fileUrlToFsPath(plain)
-    push(asFile || plain)
+  ingestText(dt.getData('text/plain') || '')
+
+  // 3) 其它 MIME（text/html、public.file-url 等）里可能夹着路径
+  try {
+    for (const type of Array.from(dt.types || [])) {
+      if (type === 'Files' || type === 'text/uri-list' || type === 'text/plain') continue
+      ingestText(dt.getData(type) || '')
+    }
+  } catch {
+    /* 部分 type 的 getData 会抛 */
+  }
+
+  // 4) Chromium / Electron：File.path
+  if (dt.files) {
+    for (let i = 0; i < dt.files.length; i++) {
+      const native = nativeFilePath(dt.files[i])
+      if (native) push(native)
+    }
   }
 
   return out
+}
+
+export type MarkdownDropResult =
+  | { ok: true; path: string }
+  | { ok: false; error: string; fileName?: string }
+
+/** 从拖放解析 .md 绝对/相对路径（Finder 常只有 File.path / Files，没有 text/uri-list） */
+export async function markdownPathFromDrop(e: DragEvent): Promise<MarkdownDropResult> {
+  const dt = e.dataTransfer
+  const pathCandidates = collectDropPathCandidates(dt)
+  for (const cand of pathCandidates) {
+    const usable = extractMarkdownFsPath(cand) || (isUsableMarkdownPath(cand) ? cand.replace(/\\/g, '/') : null)
+    if (usable) return { ok: true, path: usable }
+  }
+
+  let seenMdName = ''
+  const tryFile = (file: File | null | undefined): string | null => {
+    if (!file) return null
+    if (isMarkdownFileName(file.name)) seenMdName = file.name
+    const native = nativeFilePath(file).replace(/\\/g, '/')
+    if (native && isUsableMarkdownPath(native)) return native
+    if (native && isMarkdownFileName(file.name)) return native
+    return null
+  }
+
+  const items = dt?.items
+  if (items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!
+      if (item.kind !== 'file') continue
+      const anyItem = item as DataTransferItem & {
+        getAsFileSystemHandle?: () => Promise<FileSystemHandle>
+      }
+      if (typeof anyItem.getAsFileSystemHandle === 'function') {
+        try {
+          const handle = await anyItem.getAsFileSystemHandle()
+          if (handle.kind === 'directory') {
+            return { ok: false, error: '不能拖入文件夹，请拖入 .md 文件' }
+          }
+          if (handle.kind === 'file') {
+            if (isMarkdownFileName(handle.name)) seenMdName = handle.name
+            const file = await (handle as FileSystemFileHandle).getFile()
+            const fromNative = tryFile(file)
+            if (fromNative) return { ok: true, path: fromNative }
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      const fromItem = tryFile(item.getAsFile())
+      if (fromItem) return { ok: true, path: fromItem }
+    }
+  }
+
+  if (dt?.files) {
+    for (let i = 0; i < dt.files.length; i++) {
+      const fromFile = tryFile(dt.files[i])
+      if (fromFile) return { ok: true, path: fromFile }
+    }
+  }
+
+  if (seenMdName) {
+    return {
+      ok: false,
+      fileName: seenMdName,
+      error: `已检测到「${seenMdName}」，但浏览器未暴露绝对路径。请粘贴本机路径（如 /Users/.../${seenMdName}）`,
+    }
+  }
+  return {
+    ok: false,
+    error: '未检测到 .md 路径。请拖入文件，或粘贴绝对路径（如 /Users/.../cocosPrefab.md）',
+  }
 }
 
 /**
@@ -153,7 +289,7 @@ async function readDroppedMetaFile(
 }
 
 /** 开发态：通过 Vite 中间件读本机文件；Node/CLI 直接读盘 */
-async function readLocalFsText(absPath: string): Promise<string | null> {
+export async function readLocalFsText(absPath: string): Promise<string | null> {
   if (typeof window !== 'undefined') {
     try {
       const url = `/__local_fs?path=${encodeURIComponent(absPath)}`

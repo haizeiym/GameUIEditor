@@ -5,6 +5,8 @@ import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
 import { canAddComponent, collectNodeRefOptions } from '../utils/node'
 import {
+  isMarkdownFileName,
+  markdownPathFromDrop,
   resolveScriptMetaUuid,
   scriptPathFromDrop,
   toastScriptMetaError,
@@ -15,7 +17,9 @@ import {
   rememberScriptBind,
 } from '../utils/recentScriptBinds'
 import {
+  listRecentTemplatePaths,
   listRecentTemplateTypes,
+  rememberTemplatePath,
   rememberTemplateType,
 } from '../utils/recentTemplateTypes'
 import PropField from './PropField.vue'
@@ -65,9 +69,10 @@ async function onDeleteNode() {
   }
 }
 
-function dropTargetFor(type: string, propName: string): 'image' | 'script' | false {
+function dropTargetFor(type: string, propName: string): 'image' | 'script' | 'markdown' | false {
   if (type === 'SpriteComponent' && propName === 'framePath') return 'image'
   if (propName === 'scriptPath') return 'script'
+  if (propName === 'templatePath') return 'markdown'
   return false
 }
 
@@ -103,6 +108,58 @@ async function onScriptPathCommit(type: string) {
   await applyScriptPath(type, path)
 }
 
+async function applyTemplatePath(type: string, rawPath: string) {
+  const md = rawPath.trim().replace(/\\/g, '/')
+  if (!md || !isMarkdownFileName(md)) {
+    ElMessage.error('请填入 .md 模板文件路径')
+    return
+  }
+  if (!node.value) return
+  const comp = node.value.components[type]
+  if (!comp) return
+  comp.templatePath = md
+  rememberTemplatePath(md)
+  editor.commit()
+  ElMessage.success(`已设置模板路径：${md}`)
+}
+
+async function onTemplatePathDrop(type: string, e: DragEvent) {
+  e.preventDefault()
+  const dropped = await markdownPathFromDrop(e)
+  if (dropped.ok) {
+    await applyTemplatePath(type, dropped.path)
+    return
+  }
+  if (dropped.fileName) {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        dropped.error,
+        '模板路径',
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          inputPlaceholder: `/Users/.../${dropped.fileName}`,
+          inputPattern: /.+\.md$/i,
+          inputErrorMessage: '须为 .md 文件路径',
+        },
+      )
+      await applyTemplatePath(type, String(value || ''))
+    } catch {
+      /* 用户取消 */
+    }
+    return
+  }
+  ElMessage.error(dropped.error || '请拖入 .md 模板文件')
+}
+
+async function onFieldDrop(type: string, propName: string, e: DragEvent) {
+  if (propName === 'templatePath') {
+    await onTemplatePathDrop(type, e)
+    return
+  }
+  await onScriptDrop(type, e)
+}
+
 async function onScriptDrop(type: string, e: DragEvent) {
   e.preventDefault()
   const dropped = await scriptPathFromDrop(e)
@@ -134,6 +191,12 @@ function recentMenu(type: string, propName: string): { command: string; label: s
   if (propName === 'templateType') {
     return listRecentTemplateTypes().map((item) => ({ command: item, label: item }))
   }
+  if (propName === 'templatePath') {
+    return listRecentTemplatePaths().map((item) => ({
+      command: item,
+      label: item.split(/[/\\]/).pop() || item,
+    }))
+  }
   return []
 }
 
@@ -148,6 +211,15 @@ function onRecentCommand(type: string, propName: string, command: string) {
     if (!comp) return
     comp.templateType = command
     rememberTemplateType(command)
+    editor.commit()
+    return
+  }
+  if (propName === 'templatePath') {
+    if (!node.value) return
+    const comp = node.value.components[type]
+    if (!comp) return
+    comp.templatePath = command
+    rememberTemplatePath(command)
     editor.commit()
   }
 }
@@ -172,6 +244,10 @@ function onPropCommit(type: string, propName: string) {
   if (propName === 'templateType' && node.value) {
     const raw = node.value.components[type]?.templateType
     if (typeof raw === 'string') rememberTemplateType(raw)
+  }
+  if (propName === 'templatePath' && node.value) {
+    const raw = node.value.components[type]?.templatePath
+    if (typeof raw === 'string' && raw.trim()) rememberTemplatePath(raw)
   }
   editor.commit()
 }
@@ -326,7 +402,7 @@ function onPropCommit(type: string, propName: string) {
                         :def="propDef"
                         :drop-target="dropTargetFor(type, String(propName))"
                         :node-options="propDef.type === 'node' ? nodeRefOptions : undefined"
-                        @script-drop="onScriptDrop(type, $event)"
+                        @script-drop="onFieldDrop(type, String(propName), $event)"
                         @commit="onPropCommit(type, String(propName))"
                       />
                     </div>
@@ -352,7 +428,7 @@ function onPropCommit(type: string, propName: string) {
                   </div>
                 </div>
                 <p v-if="type === 'TemplateComponent'" class="text-[11px] leading-snug text-zinc-500">
-                  仅 Root 生效。空或「1」→ codePreview/cocosPrefab.md 的 ### 1；「2」→ 同文件 ### 2；「list_item」→ codePreview/list.md 的 ### item。导出时 FileName 换成包名。
+                  仅 Root 生效。无路径：空/「1」→ codePreview/cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md，templateType 原样对应标题（「xxx_aaa」→ ### xxx_aaa，不拆文件）；空类型等同 ### 1。可拖入 Finder 的 .md。导出时 FileName 换成包名。
                 </p>
               </template>
               <p v-else class="text-xs text-zinc-500">

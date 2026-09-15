@@ -12,7 +12,7 @@
 
 ## 0.1 单一事实来源
 1. **本文 + 仓库内既有参考文件**是唯一规格；禁止凭「常见编辑器习惯」擅自改坐标、层级、枚举或目录约定。
-2. 配套脚本模板来自 `codePreview/` 下 markdown 的指定 `###` 标题中的 `ts` 代码块（占位符 `FileName`）。缺省 `codePreview/cocosPrefab.md` 的 `### 1`；Root 上 `TemplateComponent.templateType` 可改选（§6.5）。
+2. 配套脚本模板缺省来自 `codePreview/` 下 markdown 的指定 `###` 标题中的 `ts` 代码块（占位符 `FileName`）。Root 上 `TemplateComponent.templateType` / `templatePath` 可改选（§6.5）。
 3. 默认组件库以本文 **§2.4 完整 `components.json`** 为准（勿用旧示例里的 `sizeMode: CUSTOM`）。
 
 ## 0.2 锁定项（禁止分叉）
@@ -281,8 +281,9 @@ trim；若结果为空 → "untitled"
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
+- `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`，或粘贴绝对/项目相对路径。解析 `File.path`、`file://`、以及拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
-- **模板类型最近记录（网页）**：`TemplateComponent.templateType` 每次成功输入（trim 后非空）写入本机最近 **10** 条（`localStorage` `uieditor.recent-template-types`；同值置顶去重）。再次添加该组件时自动填最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
+- **模板类型 / 路径最近记录（网页）**：`templateType`、`templatePath` 各自记住最近 **10** 条非空输入（`uieditor.recent-template-types` / `uieditor.recent-template-paths`；同值置顶去重）。再次添加 `TemplateComponent` 时自动填各自最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
 
 ## 3.5 底部资源管理器
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
@@ -435,18 +436,25 @@ y = top  + height/2 - docH/2
 FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
 ## 6.5 配套脚本
-由 **Root** 上 `TemplateComponent.templateType`（缺省 `"1"`，空等同缺省）选择 `codePreview/` 里的 ts 模板，再把全部 `FileName` → **包标识名**（§6.1，如 `test` / `ZhuJieMian`）。网页与 CLI 均须生成；CLI 读磁盘 `codePreview/*.md`，缺 `cocosPrefab.md` 时用内置兜底（与 `### 1` 同步）。
+由 **Root** 上 `TemplateComponent` 选择 ts 模板，再把全部 `FileName` → **包标识名**（§6.1）。网页与 CLI 均须生成。`TemplateComponent` 不写入 Prefab 组件。
 
-**取值（trim 后）**：
+**`templatePath`（trim，`\` → `/`）**：
+- 空：按下面「无路径」规则从仓库 `codePreview/` 取文档。
+- 非空：必须是 `.md` 文件（本机绝对路径或项目相对路径）。读该文件全文；此时 **`templateType` 只在该文档内选标题，整串对照 `###`，不按下划线拆文件**。
+  - 空 / `1` → 该文件的 `### 1`
+  - `xxx_aaa` → 该文件的 `### xxx_aaa`（**不是** `codePreview/xxx.md` 的 `### aaa`）
+- 读不到文件或不是 `.md` 则导出失败。
+
+**无 `templatePath` 时的 `templateType`（trim）**：
 | `templateType` | 文档 | 标题 |
 |---|---|---|
 | 空 / 未挂组件 | `codePreview/cocosPrefab.md` | `### 1` |
-| 不含 `_` 的字符串（如 `1`、`2`） | 同上 `cocosPrefab.md` | `### {该字符串}` |
+| 不含 `_` 的字符串（如 `1`、`pop1`） | 同上 `cocosPrefab.md` | `### {该字符串}` |
 | `xxx_aaa`（第一个 `_` 切开） | `codePreview/xxx.md` | `### aaa` |
 
-标题下第一个 TypeScript 围栏代码块（语言标记 `ts` 或 `typescript`）为模板正文。找不到文档或标题/代码块则导出失败（禁止静默改用别的块）。`xxx` 只允许 `[A-Za-z0-9._-]`、不以 `.` 开头、不含 `..`。
+标题下第一个 TypeScript 围栏代码块（语言标记 `ts` 或 `typescript`）为模板正文。找不到文档或标题/代码块则导出失败（禁止静默改用别的块）。无路径时的 `xxx` 只允许 `[A-Za-z0-9._-]`、不以 `.` 开头、不含 `..`。CLI 读磁盘 `codePreview/*.md`，缺 `cocosPrefab.md` 时用内置兜底（与 `### 1` 同步）。
 
-Inspector 文案用短名「模板类型（仅 Root）」；细则以本节为准，不要把整段规则塞进 `displayName`。网页记住最近 10 条输入（§3.4）。
+Inspector 用短名「模板类型 / 模板路径（仅 Root）」；细则以本节为准。网页分别记住最近 10 条类型与路径（§3.4）。
 
 ## 6.6 验收
 - 拷入空 Creator 3.8 工程 `assets`：无缺失引用；可打开 Prefab；层级/位置（含 Y 翻转）/贴图/枚举与编辑器一致；根已挂同名脚本。
@@ -515,7 +523,7 @@ uieditor --help
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
-17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。`templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`（缺文件则失败）。输入后「最近」最多 10 条，刷新仍在；再添加自动填最近一条。
+17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。Finder 拖入 `.md` 能写入路径。类型与路径各「最近」最多 10 条，再添加自动填。
 
 ---
 

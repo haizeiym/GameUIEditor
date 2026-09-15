@@ -7,7 +7,7 @@ const props = defineProps<{
   def: PropDef
   modelValue: unknown
   /** 资源拖放：图片路径 / 脚本路径 */
-  dropTarget?: 'image' | 'script' | boolean
+  dropTarget?: 'image' | 'script' | 'markdown' | boolean
   /** type=node 时的节点下拉（`.` = 当前节点） */
   nodeOptions?: { label: string; value: string }[]
 }>()
@@ -22,6 +22,7 @@ const emit = defineEmits<{
 const dropKind = computed(() => {
   if (props.dropTarget === true || props.dropTarget === 'image') return 'image'
   if (props.dropTarget === 'script') return 'script'
+  if (props.dropTarget === 'markdown') return 'markdown'
   return null
 })
 
@@ -77,7 +78,7 @@ function setVec(axis: 'x' | 'y', v: number | undefined) {
 function onDrop(e: DragEvent) {
   if (!dropKind.value) return
   e.preventDefault()
-  if (dropKind.value === 'script') {
+  if (dropKind.value === 'script' || dropKind.value === 'markdown') {
     emit('script-drop', e)
     return
   }
@@ -92,6 +93,7 @@ const placeholder = computed(() => {
   if (dropKind.value === 'image') return '可从下方资源管理器拖入图片'
   if (dropKind.value === 'script')
     return '拖入 .ts 或 .ts.meta；Mac 上可再选同目录 .meta 文件'
+  if (dropKind.value === 'markdown') return '拖入 .md 模板文件，或粘贴绝对路径'
   return ''
 })
 
@@ -125,6 +127,8 @@ const nodeSelectOptions = computed(() => {
       v-model="strValue"
       size="small"
       :placeholder="placeholder"
+      @dragover.prevent
+      @drop.prevent.stop="onDrop"
       @change="emit('commit')"
     />
   </div>

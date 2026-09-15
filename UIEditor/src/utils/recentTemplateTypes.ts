@@ -1,9 +1,11 @@
 /**
- * Root TemplateComponent.templateType 最近 10 条（仅网页，localStorage）。
+ * Root TemplateComponent 的 templateType / templatePath 最近 10 条（仅网页）。
  */
 
-export const RECENT_TEMPLATE_TYPES_LS_KEY = 'uieditor.recent-template-types'
 const MAX = 10
+
+export const RECENT_TEMPLATE_TYPES_LS_KEY = 'uieditor.recent-template-types'
+export const RECENT_TEMPLATE_PATHS_LS_KEY = 'uieditor.recent-template-paths'
 
 function canUseLocalStorage(): boolean {
   try {
@@ -13,10 +15,10 @@ function canUseLocalStorage(): boolean {
   }
 }
 
-export function listRecentTemplateTypes(): string[] {
+function listRecent(key: string): string[] {
   if (!canUseLocalStorage()) return []
   try {
-    const raw = localStorage.getItem(RECENT_TEMPLATE_TYPES_LS_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return []
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return []
@@ -37,22 +39,42 @@ export function listRecentTemplateTypes(): string[] {
   }
 }
 
-export function latestTemplateType(): string | null {
-  return listRecentTemplateTypes()[0] ?? null
-}
-
-export function rememberTemplateType(raw: string): string[] {
+function remember(key: string, raw: string): string[] {
   const v = raw.trim()
-  if (!v) return listRecentTemplateTypes()
-  const next = [v, ...listRecentTemplateTypes().filter((item) => item !== v)].slice(0, MAX)
+  if (!v) return listRecent(key)
+  const next = [v, ...listRecent(key).filter((item) => item !== v)].slice(0, MAX)
   if (!canUseLocalStorage()) {
     console.warn('[recentTemplateTypes] 无法写入 localStorage')
     return next
   }
   try {
-    localStorage.setItem(RECENT_TEMPLATE_TYPES_LS_KEY, JSON.stringify(next))
+    localStorage.setItem(key, JSON.stringify(next))
   } catch (err) {
     console.warn('[recentTemplateTypes] 无法写入 localStorage', err)
   }
   return next
+}
+
+export function listRecentTemplateTypes(): string[] {
+  return listRecent(RECENT_TEMPLATE_TYPES_LS_KEY)
+}
+
+export function latestTemplateType(): string | null {
+  return listRecentTemplateTypes()[0] ?? null
+}
+
+export function rememberTemplateType(raw: string): string[] {
+  return remember(RECENT_TEMPLATE_TYPES_LS_KEY, raw)
+}
+
+export function listRecentTemplatePaths(): string[] {
+  return listRecent(RECENT_TEMPLATE_PATHS_LS_KEY)
+}
+
+export function latestTemplatePath(): string | null {
+  return listRecentTemplatePaths()[0] ?? null
+}
+
+export function rememberTemplatePath(raw: string): string[] {
+  return remember(RECENT_TEMPLATE_PATHS_LS_KEY, raw)
 }
