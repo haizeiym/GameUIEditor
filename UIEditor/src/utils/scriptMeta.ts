@@ -158,29 +158,12 @@ function collectDropPathCandidates(dt: DataTransfer | null): string[] {
 }
 
 export type MarkdownDropResult =
-  | { ok: true; path: string }
-  | { ok: false; error: string; fileName?: string }
+  | { ok: true; path: string; text?: string }
+  | { ok: false; error: string; fileName?: string; text?: string }
 
-/** 从拖放解析 .md 绝对/相对路径（Finder 常只有 File.path / Files，没有 text/uri-list） */
-export async function markdownPathFromDrop(e: DragEvent): Promise<MarkdownDropResult> {
-  const dt = e.dataTransfer
-  const pathCandidates = collectDropPathCandidates(dt)
-  for (const cand of pathCandidates) {
-    const usable = extractMarkdownFsPath(cand) || (isUsableMarkdownPath(cand) ? cand.replace(/\\/g, '/') : null)
-    if (usable) return { ok: true, path: usable }
-  }
-
-  let seenMdName = ''
-  const tryFile = (file: File | null | undefined): string | null => {
-    if (!file) return null
-    if (isMarkdownFileName(file.name)) seenMdName = file.name
-    const native = nativeFilePath(file).replace(/\\/g, '/')
-    if (native && isUsableMarkdownPath(native)) return native
-    if (native && isMarkdownFileName(file.name)) return native
-    return null
-  }
-
-  const items = dt?.items
+async function readDroppedMarkdownFile(dt: DataTransfer | null): Promise<File | null> {
+  if (!dt) return null
+  const items = dt.items
   if (items) {
     for (let i = 0; i < items.length; i++) {
       const item = items[i]!
@@ -192,40 +175,102 @@ export async function markdownPathFromDrop(e: DragEvent): Promise<MarkdownDropRe
         try {
           const handle = await anyItem.getAsFileSystemHandle()
           if (handle.kind === 'directory') {
-            return { ok: false, error: '不能拖入文件夹，请拖入 .md 文件' }
+            throw new Error('不能拖入文件夹，请拖入 .md 文件')
           }
-          if (handle.kind === 'file') {
-            if (isMarkdownFileName(handle.name)) seenMdName = handle.name
-            const file = await (handle as FileSystemFileHandle).getFile()
-            const fromNative = tryFile(file)
-            if (fromNative) return { ok: true, path: fromNative }
+          if (handle.kind === 'file' && isMarkdownFileName(handle.name)) {
+            return await (handle as FileSystemFileHandle).getFile()
           }
-        } catch {
-          /* fall through */
+        } catch (err) {
+          if (err instanceof Error && err.message.startsWith('不能拖入文件夹')) throw err
         }
       }
-      const fromItem = tryFile(item.getAsFile())
-      if (fromItem) return { ok: true, path: fromItem }
+      const file = item.getAsFile()
+      if (file && isMarkdownFileName(file.name)) return file
     }
   }
-
-  if (dt?.files) {
+  if (dt.files) {
     for (let i = 0; i < dt.files.length; i++) {
-      const fromFile = tryFile(dt.files[i])
-      if (fromFile) return { ok: true, path: fromFile }
+      const file = dt.files[i]
+      if (file && isMarkdownFileName(file.name)) return file
+    }
+  }
+  return null
+}
+
+/** 从拖放解析 .md 路径，并读出正文（打包环境导出必须靠这次缓存） */
+export async function markdownPathFromDrop(e: DragEvent): Promise<MarkdownDropResult> {
+  const dt = e.dataTransfer
+  let mdFile: File | null = null
+  try {
+    mdFile = await readDroppedMarkdownFile(dt)
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : '不能拖入文件夹，请拖入 .md 文件' }
+  }
+
+  let text: string | undefined
+  if (mdFile) {
+    try {
+      text = await mdFile.text()
+    } catch (err) {
+      console.warn('[scriptMeta] 读取拖入的 .md 失败', err)
     }
   }
 
-  if (seenMdName) {
+  let path: string | null = null
+  for (const cand of collectDropPathCandidates(dt)) {
+    const usable =
+      extractMarkdownFsPath(cand) || (isUsableMarkdownPath(cand) ? cand.replace(/\\/g, '/') : null)
+    if (usable) {
+      path = usable
+      break
+    }
+  }
+  if (!path && mdFile) {
+    const native = nativeFilePath(mdFile).replace(/\\/g, '/')
+    if (native && isUsableMarkdownPath(native)) path = native
+    else if (native && isMarkdownFileName(mdFile.name)) path = native
+  }
+
+  if (path) return { ok: true, path, text }
+  if (mdFile) {
     return {
       ok: false,
-      fileName: seenMdName,
-      error: `已检测到「${seenMdName}」，但浏览器未暴露绝对路径。请粘贴本机路径（如 /Users/.../${seenMdName}）`,
+      fileName: mdFile.name,
+      text,
+      error: `已检测到「${mdFile.name}」，但浏览器未暴露绝对路径。请粘贴本机路径（如 /Users/.../${mdFile.name}）`,
     }
   }
   return {
     ok: false,
     error: '未检测到 .md 路径。请拖入文件，或粘贴绝对路径（如 /Users/.../cocosPrefab.md）',
+  }
+}
+
+/** 打包环境无法按绝对路径读盘时，让用户再选一次 .md */
+export async function pickLocalMarkdownText(preferredName?: string): Promise<string | null> {
+  if (typeof window.showOpenFilePicker !== 'function') return null
+  const hint = preferredName ? `请选择模板文件「${preferredName}」` : '请选择 .md 模板文件'
+  ElMessage.info(hint)
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      id: 'uieditor-template-md',
+      multiple: false,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'Markdown 模板 (.md)',
+          accept: {
+            'text/markdown': ['.md'],
+            'text/plain': ['.md'],
+          },
+        },
+      ],
+    } as Parameters<Window['showOpenFilePicker']>[0])
+    if (!handle) return null
+    const file = await handle.getFile()
+    return await file.text()
+  } catch {
+    return null
   }
 }
 

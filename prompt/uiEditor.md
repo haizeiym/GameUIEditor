@@ -281,7 +281,7 @@ trim；若结果为空 → "untitled"
 - 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价。
 - `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
-- `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`，或粘贴绝对/项目相对路径。解析 `File.path`、`file://`、以及拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。
+- `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`，或粘贴绝对/项目相对路径。解析 `File.path`、`file://`、以及拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。拖入时缓存文件正文（打包后导出靠这份缓存；开发态仍可走 `/__local_fs`）。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
 - **模板类型 / 路径最近记录（网页）**：`templateType`、`templatePath` 各自记住最近 **10** 条非空输入（`uieditor.recent-template-types` / `uieditor.recent-template-paths`；同值置顶去重）。再次添加 `TemplateComponent` 时自动填各自最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
 
@@ -444,6 +444,7 @@ FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
   - 空 / `1` → 该文件的 `### 1`
   - `xxx_aaa` → 该文件的 `### xxx_aaa`（**不是** `codePreview/xxx.md` 的 `### aaa`）
 - 读不到文件或不是 `.md` 则导出失败。
+- **网页读盘**：开发态可用 `/__local_fs` 读绝对路径。**打包后没有该接口**，不能凭路径直接读 `/Users/...`。须拖入 `.md`（缓存正文到 `uieditor.template-md-cache`）或导出时再选一次文件。CLI 仍直接读盘。
 
 **无 `templatePath` 时的 `templateType`（trim）**：
 | `templateType` | 文档 | 标题 |
@@ -523,7 +524,7 @@ uieditor --help
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。导出时 LangSprite 用到的图在 `{pack}/UI/zh/`，UUID 种子为 `cocos-image:UI/zh:{framePath}`，Prefab `_spriteFrame` 重绑该 UUID；普通 Sprite 仍在 `{pack}/UI/`、原种子。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
-17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。Finder 拖入 `.md` 能写入路径。类型与路径各「最近」最多 10 条，再添加自动填。
+17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。Finder 拖入 `.md` 能写入路径。打包后导出用拖入时缓存的正文（无缓存则弹出选文件）。类型与路径各「最近」最多 10 条，再添加自动填。
 
 ---
 

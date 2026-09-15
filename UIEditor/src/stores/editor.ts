@@ -25,7 +25,8 @@ import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
 import { latestTemplatePath, latestTemplateType } from '../utils/recentTemplateTypes'
-import { isAbsoluteFsPath, readLocalFsText } from '../utils/scriptMeta'
+import { isAbsoluteFsPath, pickLocalMarkdownText, readLocalFsText } from '../utils/scriptMeta'
+import { getCachedTemplateMd, rememberTemplateMd } from '../utils/templateMdCache'
 import { useProjectStore } from './project'
 
 const MAX_HISTORY = 50
@@ -325,7 +326,20 @@ export const useEditorStore = defineStore('editor', () => {
       readText: async (p) => {
         const file = await project.getFileByPath(p)
         if (file) return file.text()
-        if (isAbsoluteFsPath(p)) return readLocalFsText(p)
+        const cached = getCachedTemplateMd(p)
+        if (cached) return cached
+        if (isAbsoluteFsPath(p)) {
+          const local = await readLocalFsText(p)
+          if (local) {
+            rememberTemplateMd(p, local)
+            return local
+          }
+          const picked = await pickLocalMarkdownText(p.split(/[/\\]/).pop())
+          if (picked) {
+            rememberTemplateMd(p, picked)
+            return picked
+          }
+        }
         return null
       },
       componentDefs: project.componentDefs,

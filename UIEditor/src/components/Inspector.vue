@@ -22,6 +22,7 @@ import {
   rememberTemplatePath,
   rememberTemplateType,
 } from '../utils/recentTemplateTypes'
+import { rememberTemplateMd } from '../utils/templateMdCache'
 import PropField from './PropField.vue'
 
 const editor = useEditorStore()
@@ -108,7 +109,7 @@ async function onScriptPathCommit(type: string) {
   await applyScriptPath(type, path)
 }
 
-async function applyTemplatePath(type: string, rawPath: string) {
+async function applyTemplatePath(type: string, rawPath: string, text?: string) {
   const md = rawPath.trim().replace(/\\/g, '/')
   if (!md || !isMarkdownFileName(md)) {
     ElMessage.error('请填入 .md 模板文件路径')
@@ -117,6 +118,7 @@ async function applyTemplatePath(type: string, rawPath: string) {
   if (!node.value) return
   const comp = node.value.components[type]
   if (!comp) return
+  if (text?.trim()) rememberTemplateMd(md, text)
   comp.templatePath = md
   rememberTemplatePath(md)
   editor.commit()
@@ -127,7 +129,7 @@ async function onTemplatePathDrop(type: string, e: DragEvent) {
   e.preventDefault()
   const dropped = await markdownPathFromDrop(e)
   if (dropped.ok) {
-    await applyTemplatePath(type, dropped.path)
+    await applyTemplatePath(type, dropped.path, dropped.text)
     return
   }
   if (dropped.fileName) {
@@ -143,7 +145,7 @@ async function onTemplatePathDrop(type: string, e: DragEvent) {
           inputErrorMessage: '须为 .md 文件路径',
         },
       )
-      await applyTemplatePath(type, String(value || ''))
+      await applyTemplatePath(type, String(value || ''), dropped.text)
     } catch {
       /* 用户取消 */
     }
