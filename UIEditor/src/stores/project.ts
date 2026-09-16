@@ -14,7 +14,13 @@ import {
   writeBinaryFile,
   writeTextFile,
 } from '../utils/fs'
-import { DEFAULT_COMPONENTS_JSON, createDefaultUIData, parseComponentDefs, serializeForDisk } from '../utils/node'
+import {
+  DEFAULT_COMPONENTS_JSON,
+  createDefaultUIData,
+  parseComponentDefs,
+  remapSpriteFramePaths,
+  serializeForDisk,
+} from '../utils/node'
 import { parsePsdFile, sanitizeFsName } from '../utils/psd'
 import type { OnExportProgress } from '../utils/exportProgress'
 import { yieldToUi } from '../utils/exportProgress'
@@ -293,6 +299,49 @@ export const useProjectStore = defineStore('project', () => {
     return moved
   }
 
+  function collectUiJsonPaths(entries: FileEntry[]): string[] {
+    const out: string[] = []
+    const walk = (list: FileEntry[]) => {
+      for (const e of list) {
+        if (e.kind === 'directory') {
+          walk(e.children ?? [])
+          continue
+        }
+        if (!e.name.toLowerCase().endsWith('.json')) continue
+        if (e.name === 'components.json') continue
+        out.push(e.path)
+      }
+    }
+    walk(entries)
+    return out
+  }
+
+  /**
+   * 资源移动后改写其它 UI JSON 里的 Sprite.framePath。
+   * 跳过当前已打开文件（由编辑器改内存树）；返回改写的文件数。
+   */
+  async function rewriteSpriteFramePathsInUiFiles(
+    moved: { from: string; to: string }[],
+    skipPath: string,
+  ): Promise<number> {
+    if (!dirHandle.value || !moved.length) return 0
+    let files = 0
+    for (const rel of collectUiJsonPaths(fileTree.value)) {
+      if (skipPath && rel === skipPath) continue
+      try {
+        const handle = await getFileHandleByPath(dirHandle.value, rel)
+        if (!handle) continue
+        const raw: unknown = JSON.parse(await readTextFile(handle))
+        if (!remapSpriteFramePaths(raw, moved)) continue
+        await writeTextFile(handle, JSON.stringify(raw, null, 2))
+        files += 1
+      } catch (err) {
+        console.warn(`同步 framePath 失败: ${rel}`, err)
+      }
+    }
+    return files
+  }
+
   /**
    * 导入 PSD：解析图层为 PNG 写入 {A}/UI/，并生成 {A}/{A}.json UI 界面。
    * 返回创建的 JSON 文件句柄与路径，供编辑器直接打开。
@@ -394,6 +443,7 @@ export const useProjectStore = defineStore('project', () => {
     createFolder,
     deleteEntry,
     moveEntries,
+    rewriteSpriteFramePathsInUiFiles,
     importPsd,
     setAssetFolderFilter,
     clearAssetFolderFilter,

@@ -5,7 +5,7 @@ import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { FileEntry } from '../types'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
-import { getFileHandleByPath, parentDirPath, remapMovedPath, topLevelEntryPaths } from '../utils/fs'
+import { applyMovedAssetPath, getFileHandleByPath, parentDirPath, topLevelEntryPaths } from '../utils/fs'
 import { isAdditiveClick } from '../utils/pointer'
 
 const project = useProjectStore()
@@ -106,8 +106,7 @@ function allowDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'nex
 function applyOpenedRemap(moved: { from: string; to: string }[]) {
   const opened = editor.currentFilePath
   if (!opened) return
-  let next = opened
-  for (const { from, to } of moved) next = remapMovedPath(next, from, to)
+  const next = applyMovedAssetPath(opened, moved)
   if (next === opened) return
   editor.currentFilePath = next
   void (async () => {
@@ -125,8 +124,13 @@ async function onNodeDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner'
   try {
     const moved = await project.moveEntries(srcs, destDir)
     applyOpenedRemap(moved)
+    const openChanged = editor.remapOpenUiFramePaths(moved)
+    const files = await project.rewriteSpriteFramePathsInUiFiles(moved, editor.currentFilePath)
     checkedPaths.value = moved.map((m) => m.to)
-    if (moved.length) ElMessage.success(`已移动 ${moved.length} 项`)
+    if (moved.length) {
+      const extra = openChanged || files > 0 ? '，已同步 Sprite 贴图路径' : ''
+      ElMessage.success(`已移动 ${moved.length} 项${extra}`)
+    }
   } catch (err) {
     ElMessage.error(`移动失败：${String(err)}`)
     await project.refreshFileTree()

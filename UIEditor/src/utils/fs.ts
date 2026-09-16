@@ -110,6 +110,16 @@ export function remapMovedPath(path: string, from: string, to: string): string {
   return path
 }
 
+/** 按移动对顺序做路径前缀替换（资源树拖入目录后同步引用） */
+export function applyMovedAssetPath(
+  path: string,
+  moved: { from: string; to: string }[],
+): string {
+  let next = path.replace(/\\/g, '/')
+  for (const { from, to } of moved) next = remapMovedPath(next, from, to)
+  return next
+}
+
 async function hasChildNamed(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
   try {
     await dir.getFileHandle(name)

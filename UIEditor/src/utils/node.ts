@@ -27,6 +27,7 @@ export {
   readComponentAbbreviation,
   resolveNodeRef,
   resolveScriptBindField,
+  remapSpriteFramePaths,
   serializeForDisk,
   topLevelSelectedIds,
 } from './uiNode'

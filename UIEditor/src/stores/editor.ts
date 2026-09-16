@@ -20,6 +20,7 @@ import {
   isStrictDescendant,
   mountComponentOnNode,
   normalizeUIData,
+  remapSpriteFramePaths,
   serializeForDisk,
   topLevelSelectedIds,
 } from '../utils/node'
@@ -548,6 +549,14 @@ export const useEditorStore = defineStore('editor', () => {
     commit()
   }
 
+  /** 资源树移动后同步当前打开 UI 的 Sprite.framePath，并记入历史 */
+  function remapOpenUiFramePaths(moved: { from: string; to: string }[]): boolean {
+    if (!currentUIData.value || !moved.length) return false
+    const changed = remapSpriteFramePaths(currentUIData.value, moved)
+    if (changed) commit()
+    return changed
+  }
+
   return {
     currentUIData,
     currentFileHandle,
@@ -589,5 +598,6 @@ export const useEditorStore = defineStore('editor', () => {
     setSelectedIds,
     addComponent,
     removeComponent,
+    remapOpenUiFramePaths,
   }
 })

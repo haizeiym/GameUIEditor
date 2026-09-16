@@ -261,6 +261,7 @@ trim；若结果为空 → "untitled"
   - 递归展示；双击 `.json` 切换当前 UI。
   - 右键：删除、新建文件夹等（`components.json` 应引导走「编辑组件库」，避免误当 UI 打开）。
   - **多选（必须）**：无勾选框，**Ctrl/⌘+单击** 切换加入集合；已选行弱高亮。拖到文件夹上（`inner`）或文件/文件夹旁（`prev`/`next`，进入其父目录）= **磁盘移动**（复制后删源）。目标已有同名项则失败并提示，并刷新树。不可移入自身或子孙。祖先已选则只移祖先。已打开的 UI 若被移动则更新 `currentFilePath` / 句柄；资源过滤目录若被移动则同步。右键删除对集合整批（不可撤销）。
+  - **贴图路径同步（必须）**：磁盘移动成功后，按每对 `{ from, to }` **前缀替换**所有 `SpriteComponent.framePath`（`path === from`，或 `from` 非空且 `path` 以 `from/` 开头 → 换成 `to` + 原后缀）。例：图 `assets/a.png` 随文件夹 `assets` 移到 `ui/assets` → `ui/assets/a.png`。只改 `framePath`，不改节点名、其它组件、`fileArray`。当前打开的 UI：改内存树并 `commit`（300ms 写盘，可 Ctrl+Z）。其它项目内 `.json` 就地改写；**跳过** `components.json` 与当前已打开文件。解析失败的 JSON `console.warn` 并跳过。CLI 不处理磁盘移动。
 
 ## 3.3 中间画布（PixiJS）
 - 按 `currentUIData` 递归构建场景；`SpriteComponent.framePath` 有效则加载本地图（Blob URL / Base64）。
@@ -536,7 +537,7 @@ uieditor --help
 # 八、建议自测清单（实现完成后勾选）
 
 1. Chrome/Edge：新建项目 → 出现 `components.json` / `assets/` / `main.json`。
-2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片双击放大，Esc 关闭。
+2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
 4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。相同像素层只写一份 PNG，多个节点共用 `framePath`；网页有进度框。
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。

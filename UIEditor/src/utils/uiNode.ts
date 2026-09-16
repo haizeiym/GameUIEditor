@@ -110,6 +110,48 @@ export function serializeForDisk(root: UINode): string {
   return JSON.stringify(root, (key, value) => (key === '_id' ? undefined : value), 2)
 }
 
+function applyMovedFramePath(path: string, moved: { from: string; to: string }[]): string {
+  let next = path.replace(/\\/g, '/')
+  for (const { from, to } of moved) {
+    if (next === from) next = to
+    else if (from && next.startsWith(`${from}/`)) next = `${to}${next.slice(from.length)}`
+  }
+  return next
+}
+
+/**
+ * 资源被移动后，按 from→to 前缀规则改写 SpriteComponent.framePath。
+ * 只改贴图路径，不改节点名、其它组件字段。
+ */
+export function remapSpriteFramePaths(
+  node: unknown,
+  moved: { from: string; to: string }[],
+): boolean {
+  if (!moved.length || !node || typeof node !== 'object' || Array.isArray(node)) return false
+  const rec = node as Record<string, unknown>
+  let changed = false
+  const comps = rec.components
+  if (comps && typeof comps === 'object' && !Array.isArray(comps)) {
+    const sprite = (comps as Record<string, unknown>)['SpriteComponent']
+    if (sprite && typeof sprite === 'object' && !Array.isArray(sprite)) {
+      const s = sprite as Record<string, unknown>
+      if (typeof s.framePath === 'string' && s.framePath.trim()) {
+        const next = applyMovedFramePath(s.framePath.trim(), moved)
+        if (next !== s.framePath) {
+          s.framePath = next
+          changed = true
+        }
+      }
+    }
+  }
+  if (Array.isArray(rec.children)) {
+    for (const child of rec.children) {
+      if (remapSpriteFramePaths(child, moved)) changed = true
+    }
+  }
+  return changed
+}
+
 export function findNodeById(root: UINode | null, id: string | null): UINode | null {
   if (!root || !id) return null
   if (root._id === id) return root
