@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import type { ElTree } from 'element-plus'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { FileEntry } from '../types'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
 import { getFileHandleByPath, parentDirPath, remapMovedPath, topLevelEntryPaths } from '../utils/fs'
+import { isAdditiveClick } from '../utils/pointer'
 
 const project = useProjectStore()
 const editor = useEditorStore()
-const treeRef = ref<InstanceType<typeof ElTree>>()
 const checkedPaths = ref<string[]>([])
-let syncingChecks = false
+const multiSelectedPaths = computed(() =>
+  checkedPaths.value.length > 1 ? new Set(checkedPaths.value) : new Set<string>(),
+)
 
 const menu = reactive({
   visible: false,
@@ -50,11 +51,6 @@ watch(
     }
     walk(project.fileTree)
     checkedPaths.value = checkedPaths.value.filter((p) => alive.has(p))
-    await nextTick()
-    if (!treeRef.value) return
-    syncingChecks = true
-    treeRef.value.setCheckedKeys(checkedPaths.value)
-    syncingChecks = false
   },
 )
 
@@ -72,26 +68,19 @@ async function onDblClick(entry: FileEntry) {
   }
 }
 
-function onClick(entry: FileEntry, _node: Node, ev: MouseEvent) {
-  const additive = ev.ctrlKey || ev.metaKey
+function onClick(entry: FileEntry, ...rest: unknown[]) {
+  const additive = isAdditiveClick(...rest)
   if (additive) {
     const set = new Set(checkedPaths.value)
     if (set.has(entry.path)) set.delete(entry.path)
     else set.add(entry.path)
     checkedPaths.value = [...set]
-    treeRef.value?.setCheckedKeys(checkedPaths.value)
   } else {
     checkedPaths.value = [entry.path]
-    treeRef.value?.setCheckedKeys(checkedPaths.value)
   }
   if (entry.kind === 'directory') {
     project.setAssetFolderFilter(entry.path)
   }
-}
-
-function onCheck(_data: FileEntry, info: { checkedKeys: string[] }) {
-  if (syncingChecks) return
-  checkedPaths.value = info.checkedKeys
 }
 
 function movingPaths(dragging: Node): string[] {
@@ -153,7 +142,6 @@ function onContextMenu(event: MouseEvent, data: FileEntry) {
   menu.visible = true
   if (!checkedPaths.value.includes(data.path)) {
     checkedPaths.value = [data.path]
-    treeRef.value?.setCheckedKeys(checkedPaths.value)
   }
   if (data.kind === 'directory') {
     project.setAssetFolderFilter(data.path)
@@ -257,25 +245,21 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
     >
       <el-tree
         v-if="project.fileTree.length"
-        ref="treeRef"
         class="panel-tree"
         :data="project.fileTree"
         node-key="path"
-        show-checkbox
-        check-strictly
         :props="{ label: 'name', children: 'children' }"
         :expand-on-click-node="false"
         highlight-current
         draggable
         :allow-drop="allowDrop"
         @node-click="onClick"
-        @check="onCheck"
         @node-drop="onNodeDrop"
         @node-contextmenu="onContextMenu"
       >
         <template #default="{ data }">
           <span
-            class="flex items-center gap-1 truncate text-[13px]"
+            class="tree-label flex items-center gap-1 truncate text-[13px]"
             :class="{
               'text-amber-300': (data as FileEntry).kind === 'directory',
               'font-semibold text-amber-200':
@@ -284,6 +268,7 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
               'text-sky-300':
                 (data as FileEntry).kind === 'file' && (data as FileEntry).name.endsWith('.json'),
               'font-semibold': editor.currentFilePath === (data as FileEntry).path,
+              'is-multi-selected': multiSelectedPaths.has((data as FileEntry).path),
             }"
             @dblclick="onDblClick(data as FileEntry)"
           >

@@ -7,12 +7,16 @@ import type { UINode } from '../types'
 import { useEditorStore } from '../stores/editor'
 import { collectNodeIds, pruneExpandedKeys } from '../utils/nodeTreeExpand'
 import { isStrictDescendant, topLevelSelectedIds } from '../utils/node'
+import { isAdditiveClick } from '../utils/pointer'
 
 const editor = useEditorStore()
 const treeRef = ref<InstanceType<typeof ElTree>>()
-let syncingChecks = false
 
 const treeData = computed<UINode[]>(() => (editor.currentUIData ? [editor.currentUIData] : []))
+const multiSelected = computed(() => {
+  if (editor.selectedCount <= 1) return new Set<string>()
+  return new Set(editor.selectedIds)
+})
 
 const expandedKeys = ref<string[]>([])
 
@@ -59,25 +63,8 @@ watch(
   { immediate: true },
 )
 
-watch(
-  () => editor.selectedIds.slice(),
-  async (ids) => {
-    await nextTick()
-    if (!treeRef.value) return
-    syncingChecks = true
-    treeRef.value.setCheckedKeys(ids.filter((id) => id !== editor.rootId))
-    syncingChecks = false
-  },
-  { immediate: true },
-)
-
-function onNodeClick(data: UINode, _node: Node, ev: MouseEvent) {
-  editor.selectNode(data._id, ev.ctrlKey || ev.metaKey)
-}
-
-function onCheck(_data: UINode, info: { checkedKeys: string[] }) {
-  if (syncingChecks) return
-  editor.setSelectedIds(info.checkedKeys)
+function onNodeClick(data: UINode, ...rest: unknown[]) {
+  editor.selectNode(data._id, isAdditiveClick(...rest))
 }
 
 function allowDrag(node: Node): boolean {
@@ -187,8 +174,6 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         class="panel-tree panel-tree--node"
         :data="treeData"
         node-key="_id"
-        show-checkbox
-        check-strictly
         :default-expanded-keys="expandedKeys"
         :auto-expand-parent="false"
         highlight-current
@@ -197,7 +182,6 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         :allow-drag="allowDrag"
         :allow-drop="allowDrop"
         @node-click="onNodeClick"
-        @check="onCheck"
         @node-drop="onNodeDrop"
         @node-expand="onNodeExpand"
         @node-collapse="onNodeCollapse"
@@ -205,8 +189,12 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
       >
         <template #default="{ data }">
           <span
-            class="truncate text-[13px]"
-            :class="(data as UINode).active ? 'text-zinc-200' : 'text-zinc-500 line-through'"
+            class="tree-label truncate text-[13px]"
+            :class="{
+              'text-zinc-200': (data as UINode).active,
+              'text-zinc-500 line-through': !(data as UINode).active,
+              'is-multi-selected': multiSelected.has((data as UINode)._id),
+            }"
           >
             {{ (data as UINode).name }}
           </span>

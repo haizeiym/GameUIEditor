@@ -29,22 +29,16 @@ body,
 /* el-tree 在暗色面板中的微调 */
 .panel-tree.el-tree {
   background: transparent;
+  user-select: none;
   --el-tree-node-hover-bg-color: rgba(255, 255, 255, 0.06);
 }
 .panel-tree .el-tree-node__content {
   height: 26px;
 }
+/* 多选：弱行高亮；当前项略强 */
+.panel-tree .el-tree-node__content:has(.is-multi-selected) {
+  background: rgba(64, 128, 255, 0.14);
+}
 .panel-tree.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
   background: rgba(64, 128, 255, 0.28);
-}
-/* Root 不参与多选：隐藏其 checkbox */
-.panel-tree--node.el-tree > .el-tree-node > .el-tree-node__content .el-checkbox {
-  visibility: hidden;
-  pointer-events: none;
-  width: 0;
-  margin: 0;
-}
-.panel-tree .el-checkbox {
-  margin-right: 6px;
-  height: 16px;
 }
