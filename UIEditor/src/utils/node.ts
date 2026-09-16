@@ -195,6 +195,11 @@ const FALLBACK_COMPONENTS_JSON = `{
         "type": "string",
         "default": "",
         "displayName": "图片导出路径"
+      },
+      "fileArray": {
+        "type": "array",
+        "default": [],
+        "displayName": "图片路径数组"
       }
     },
     "abbreviation": "ToFile",

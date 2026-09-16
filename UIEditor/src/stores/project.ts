@@ -37,6 +37,10 @@ export const useProjectStore = defineStore('project', () => {
   const assetVersion = ref(0)
   /** 资源管理器文件夹过滤：空字符串表示显示全部；否则只显示该目录（含子目录）内图片 */
   const assetFolderFilter = ref('')
+  /** 文件树当前选中路径（Ctrl/⌘ 多选） */
+  const selectedEntryPaths = ref<string[]>([])
+  /** 底部资源管理器当前选中图片路径 */
+  const selectedAssetPaths = ref<string[]>([])
 
   const filteredAssets = computed(() => {
     const folder = assetFolderFilter.value
@@ -114,6 +118,15 @@ export const useProjectStore = defineStore('project', () => {
   async function refreshFileTree() {
     if (!dirHandle.value) return
     fileTree.value = await buildFileTree(dirHandle.value)
+    const alive = new Set<string>()
+    const walk = (entries: FileEntry[]) => {
+      for (const e of entries) {
+        alive.add(e.path)
+        if (e.children) walk(e.children)
+      }
+    }
+    walk(fileTree.value)
+    selectedEntryPaths.value = selectedEntryPaths.value.filter((p) => alive.has(p))
   }
 
   /**
@@ -219,6 +232,8 @@ export const useProjectStore = defineStore('project', () => {
 
     assets.value.forEach((a) => URL.revokeObjectURL(a.url))
     assets.value = images.map((i) => ({ name: i.name, path: i.path, url: URL.createObjectURL(i.file) }))
+    const alive = new Set(assets.value.map((a) => a.path))
+    selectedAssetPaths.value = selectedAssetPaths.value.filter((p) => alive.has(p))
     assetVersion.value += 1
   }
 
@@ -431,6 +446,8 @@ export const useProjectStore = defineStore('project', () => {
     assets,
     filteredAssets,
     assetFolderFilter,
+    selectedEntryPaths,
+    selectedAssetPaths,
     assetVersion,
     importProject,
     newProject,

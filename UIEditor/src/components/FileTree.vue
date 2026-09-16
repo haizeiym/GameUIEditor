@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { FileEntry } from '../types'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
-import { applyMovedAssetPath, getFileHandleByPath, parentDirPath, topLevelEntryPaths } from '../utils/fs'
+import { applyMovedAssetPath, getFileHandleByPath, isImageFile, parentDirPath, topLevelEntryPaths } from '../utils/fs'
+import { mergeImagePaths, writeImagePathsTransfer } from '../utils/imagePaths'
 import { isAdditiveClick } from '../utils/pointer'
 
 const project = useProjectStore()
 const editor = useEditorStore()
-const checkedPaths = ref<string[]>([])
+const checkedPaths = computed({
+  get: () => project.selectedEntryPaths,
+  set: (v: string[]) => {
+    project.selectedEntryPaths = v
+  },
+})
 const multiSelectedPaths = computed(() =>
   checkedPaths.value.length > 1 ? new Set(checkedPaths.value) : new Set<string>(),
 )
@@ -39,19 +45,8 @@ const menuBatchPaths = computed(() => {
   return topLevelEntryPaths(raw)
 })
 
-watch(
-  () => project.fileTree,
-  async () => {
-    const alive = new Set<string>()
-    const walk = (entries: FileEntry[]) => {
-      for (const e of entries) {
-        alive.add(e.path)
-        if (e.children) walk(e.children)
-      }
-    }
-    walk(project.fileTree)
-    checkedPaths.value = checkedPaths.value.filter((p) => alive.has(p))
-  },
+const menuImagePaths = computed(() =>
+  menuBatchPaths.value.filter((p) => isImageFile(p.split('/').pop() || '')),
 )
 
 async function onDblClick(entry: FileEntry) {
@@ -89,6 +84,18 @@ function movingPaths(dragging: Node): string[] {
     ? checkedPaths.value
     : [src]
   return topLevelEntryPaths(raw)
+}
+
+function onTreeDragStart(dragging: Node, ev: DragEvent) {
+  const src = (dragging.data as FileEntry).path
+  const raw =
+    checkedPaths.value.includes(src) && checkedPaths.value.length > 1
+      ? checkedPaths.value
+      : [src]
+  const images = raw.filter((p) => isImageFile(p.split('/').pop() || ''))
+  if (!images.length) return
+  const ordered = images.includes(src) ? [src, ...images.filter((p) => p !== src)] : images
+  writeImagePathsTransfer(ev.dataTransfer, ordered)
 }
 
 function allowDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'next'): boolean {
@@ -164,6 +171,26 @@ function onPanelContextMenu(event: MouseEvent) {
 
 function closeMenu() {
   menu.visible = false
+}
+
+function onAddToFileArray() {
+  const paths = menuImagePaths.value
+  closeMenu()
+  const node = editor.selectedNode
+  const inst = node?.components['ImgToFileComponent']
+  if (!inst) {
+    ElMessage.info('请先选中带 ImgToFileComponent 的节点')
+    return
+  }
+  if (!paths.length) {
+    ElMessage.info('请选择图片文件（.png / .jpg / .webp）')
+    return
+  }
+  const before = Array.isArray(inst.fileArray) ? inst.fileArray.length : 0
+  inst.fileArray = mergeImagePaths(inst.fileArray, paths)
+  const added = (inst.fileArray as string[]).length - before
+  editor.commit()
+  ElMessage.success(added > 0 ? `已加入 ${added} 张图片` : '所选图片已在数组中')
 }
 
 async function onNewFolder() {
@@ -258,6 +285,7 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         draggable
         :allow-drop="allowDrop"
         @node-click="onClick"
+        @node-drag-start="onTreeDragStart"
         @node-drop="onNodeDrop"
         @node-contextmenu="onContextMenu"
       >
@@ -300,6 +328,16 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
           </span>
           <span v-else-if="menu.entry" class="ml-1 text-[11px] text-zinc-500">（同级）</span>
           <span v-else class="ml-1 text-[11px] text-zinc-500">（根目录）</span>
+        </button>
+        <button
+          class="block w-full px-4 py-1.5 text-left hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-600"
+          :disabled="!menuImagePaths.length"
+          @click="onAddToFileArray"
+        >
+          加入图片数组
+          <span v-if="menuImagePaths.length" class="text-zinc-500">
+            ({{ menuImagePaths.length }})
+          </span>
         </button>
         <button
           class="block w-full px-4 py-1.5 text-left text-red-400 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-600"

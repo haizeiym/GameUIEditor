@@ -2,9 +2,14 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useProjectStore } from '../stores/project'
 import type { AssetEntry } from '../types'
+import { isAdditiveClick } from '../utils/pointer'
+import { writeImagePathsTransfer } from '../utils/imagePaths'
 
 const project = useProjectStore()
 const preview = ref<AssetEntry | null>(null)
+const multiSelected = computed(() =>
+  project.selectedAssetPaths.length > 1 ? new Set(project.selectedAssetPaths) : new Set<string>(),
+)
 
 const titleSuffix = computed(() =>
   project.assetFolderFilter ? ` · ${project.assetFolderFilter}` : ' · 全部',
@@ -36,9 +41,24 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
+function onAssetClick(e: MouseEvent, asset: AssetEntry) {
+  if (isAdditiveClick(e)) {
+    const set = new Set(project.selectedAssetPaths)
+    if (set.has(asset.path)) set.delete(asset.path)
+    else set.add(asset.path)
+    project.selectedAssetPaths = [...set]
+    return
+  }
+  project.selectedAssetPaths = [asset.path]
+}
+
 function onDragStart(e: DragEvent, asset: AssetEntry) {
-  e.dataTransfer?.setData('text/plain', asset.path)
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
+  const selected = project.selectedAssetPaths
+  const paths =
+    selected.includes(asset.path) && selected.length > 1
+      ? [asset.path, ...selected.filter((p) => p !== asset.path)]
+      : [asset.path]
+  writeImagePathsTransfer(e.dataTransfer, paths)
 }
 
 function openPreview(asset: AssetEntry) {
@@ -51,7 +71,12 @@ function openPreview(asset: AssetEntry) {
     <h3
       class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-1.5 text-xs font-semibold tracking-wider text-zinc-400 select-none"
     >
-      <span class="truncate">资源管理器（图片）{{ titleSuffix }}</span>
+      <span class="truncate">
+        资源管理器（图片）{{ titleSuffix }}
+        <span v-if="project.selectedAssetPaths.length > 1" class="font-normal text-sky-400">
+          · {{ project.selectedAssetPaths.length }}
+        </span>
+      </span>
       <span class="flex shrink-0 items-center gap-1">
         <button
           v-if="project.assetFolderFilter"
@@ -85,9 +110,16 @@ function openPreview(asset: AssetEntry) {
         <div
           v-for="asset in project.filteredAssets"
           :key="asset.path"
-          class="flex w-20 shrink-0 cursor-grab flex-col items-center gap-1 rounded border border-zinc-800 bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
+          class="flex w-20 shrink-0 cursor-grab flex-col items-center gap-1 rounded border bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
+          :class="
+            multiSelected.has(asset.path) ||
+            (project.selectedAssetPaths.length === 1 && project.selectedAssetPaths[0] === asset.path)
+              ? 'border-sky-600 bg-sky-950/40'
+              : 'border-zinc-800'
+          "
           draggable="true"
-          :title="`${asset.path}（双击放大）`"
+          :title="`${asset.path}（单击选中，Ctrl/⌘+点多选，双击放大）`"
+          @click="onAssetClick($event, asset)"
           @dragstart="onDragStart($event, asset)"
           @dblclick.stop="openPreview(asset)"
         >

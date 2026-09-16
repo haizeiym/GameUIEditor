@@ -25,6 +25,8 @@ import {
 } from '../utils/recentTemplateTypes'
 import { rememberTemplateMd } from '../utils/templateMdCache'
 import PropField from './PropField.vue'
+import { isImageFile } from '../utils/fs'
+import { mergeImagePaths } from '../utils/imagePaths'
 
 const editor = useEditorStore()
 const project = useProjectStore()
@@ -85,6 +87,7 @@ async function onDeleteNode() {
 
 function dropTargetFor(type: string, propName: string): 'image' | 'script' | 'markdown' | false {
   if (type === 'SpriteComponent' && propName === 'framePath') return 'image'
+  if (type === 'ImgToFileComponent' && propName === 'fileArray') return 'image'
   if (propName === 'scriptPath') return 'script'
   if (propName === 'templatePath') return 'markdown'
   return false
@@ -283,6 +286,27 @@ function onPropCommit(type: string, propName: string) {
   }
   editor.commit()
 }
+
+function selectedImagePaths(): string[] {
+  const files = project.selectedEntryPaths.filter((p) => isImageFile(p.split('/').pop() || ''))
+  return mergeImagePaths([], [...files, ...project.selectedAssetPaths])
+}
+
+function addSelectedImages(type: string) {
+  if (!node.value) return
+  const comp = node.value.components[type]
+  if (!comp) return
+  const incoming = selectedImagePaths()
+  if (!incoming.length) {
+    ElMessage.info('请先在文件树或资源管理器中选择图片')
+    return
+  }
+  const before = Array.isArray(comp.fileArray) ? comp.fileArray.length : 0
+  comp.fileArray = mergeImagePaths(comp.fileArray, incoming)
+  const added = (comp.fileArray as string[]).length - before
+  editor.commit()
+  ElMessage.success(added > 0 ? `已加入 ${added} 张图片` : '所选图片已在数组中')
+}
 </script>
 
 <template>
@@ -419,10 +443,12 @@ function onPropCommit(type: string, propName: string) {
                 <div
                   v-for="(propDef, propName) in project.componentDefs[type].properties"
                   :key="propName"
-                  class="flex items-center gap-2"
+                  class="flex gap-2"
+                  :class="propDef.type === 'array' ? 'items-start' : 'items-center'"
                 >
                   <span
                     class="w-24 shrink-0 truncate text-zinc-400"
+                    :class="propDef.type === 'array' ? 'pt-1.5' : ''"
                     :title="propDef.displayName ? `${propDef.displayName} (${propName})` : String(propName)"
                   >
                     {{ propDef.displayName || propName }}
@@ -438,6 +464,14 @@ function onPropCommit(type: string, propName: string) {
                         @commit="onPropCommit(type, String(propName))"
                       />
                     </div>
+                    <el-button
+                      v-if="type === 'ImgToFileComponent' && String(propName) === 'fileArray'"
+                      size="small"
+                      title="把文件树 / 资源管理器当前选中的图片加入数组"
+                      @click="addSelectedImages(type)"
+                    >
+                      添加选中
+                    </el-button>
                     <el-dropdown
                       v-if="recentMenu(type, String(propName)).length"
                       trigger="click"

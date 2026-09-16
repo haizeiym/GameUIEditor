@@ -194,9 +194,10 @@ interface UINode {
 
 完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel / ImgToFile / TemplateComponent，以及 Button.`abbreviation: Btn`、LangSprite.`abbreviation: Langi`、ImgToFile.`abbreviation: ToFile`），新建项目必须写入该文件，勿只拷上面的节选。
 
-属性类型：`string` | `number` | `boolean` | `color` | `v2` | `enum` | `node`。
+属性类型：`string` | `number` | `boolean` | `color` | `v2` | `enum` | `node` | `array`。
 - 枚举在 JSON / 内存中存 **字符串 value**（如 `"TRIMMED"`），导出 Prefab 时再映射为引擎数值。
 - `node`：存相对本节点的路径字符串；`.` 或空表示自身。`ButtonComponent.target` 必须用此类型，缺省 `"."`。
+- `array`：字符串数组。`ImgToFileComponent.fileArray` 存**项目相对图片路径**，去重、保持加入顺序。
 
 ## 2.5 文件名安全 `sanitizeFsName`
 ```text
@@ -261,7 +262,7 @@ trim；若结果为空 → "untitled"
   - 递归展示；双击 `.json` 切换当前 UI。
   - 右键：删除、新建文件夹等（`components.json` 应引导走「编辑组件库」，避免误当 UI 打开）。
   - **多选（必须）**：无勾选框，**Ctrl/⌘+单击** 切换加入集合；已选行弱高亮。拖到文件夹上（`inner`）或文件/文件夹旁（`prev`/`next`，进入其父目录）= **磁盘移动**（复制后删源）。目标已有同名项则失败并提示，并刷新树。不可移入自身或子孙。祖先已选则只移祖先。已打开的 UI 若被移动则更新 `currentFilePath` / 句柄；资源过滤目录若被移动则同步。右键删除对集合整批（不可撤销）。
-  - **贴图路径同步（必须）**：磁盘移动成功后，按每对 `{ from, to }` **前缀替换**所有 `SpriteComponent.framePath`（`path === from`，或 `from` 非空且 `path` 以 `from/` 开头 → 换成 `to` + 原后缀）。例：图 `assets/a.png` 随文件夹 `assets` 移到 `ui/assets` → `ui/assets/a.png`。只改 `framePath`，不改节点名、其它组件、`fileArray`。当前打开的 UI：改内存树并 `commit`（300ms 写盘，可 Ctrl+Z）。其它项目内 `.json` 就地改写；**跳过** `components.json` 与当前已打开文件。解析失败的 JSON `console.warn` 并跳过。CLI 不处理磁盘移动。
+  - **贴图路径同步（必须）**：磁盘移动成功后，按每对 `{ from, to }` **前缀替换**所有 `SpriteComponent.framePath` 与 `ImgToFileComponent.fileArray` 中的路径（`path === from`，或 `from` 非空且 `path` 以 `from/` 开头 → 换成 `to` + 原后缀）。例：图 `assets/a.png` 随文件夹 `assets` 移到 `ui/assets` → `ui/assets/a.png`。不改节点名、其它组件。`fileArray` 替换后去重保序。当前打开的 UI：改内存树并 `commit`（300ms 写盘，可 Ctrl+Z）。其它项目内 `.json` 就地改写；**跳过** `components.json` 与当前已打开文件。解析失败的 JSON `console.warn` 并跳过。CLI 不处理磁盘移动。
 
 ## 3.3 中间画布（PixiJS）
 - 按 `currentUIData` 递归构建场景；`SpriteComponent.framePath` 有效则加载本地图（Blob URL / Base64）。
@@ -286,8 +287,9 @@ trim；若结果为空 → "untitled"
 - 基础字段：`name`, `active`, `x`, `y`, `width`, `height`, `zIndex` +「删除节点」（Root 隐藏）。
 - 「添加组件」来自 `components.json`，受 §2.3 互斥与伴随组件规则约束。`TemplateComponent` 只出现在 Root 的添加列表。
 - `el-collapse`：标题左类型、右删组件。
-- 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价。
-- `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**。
+- 按 `type` 渲染：`string→el-input`，`number→el-input-number`（min/max），`boolean→el-switch`，`color→el-color-picker`，`enum→el-select`，`node→el-select`（当前节点 `.` + 子孙路径），`v2→` 双数字或等价，`array→` 路径列表（可删单项）。
+- `SpriteComponent.framePath`：Drop Target（`dragover`/`drop`），接收资源管理器拖入的**项目相对路径**（单路径）。
+- `ImgToFileComponent.fileArray`（必须）：Drop Target，从**文件树**或**资源管理器**拖入 `.png/.jpg/.webp`；单选拖一项，多选拖入全部（去重追加，不覆盖已有）。也可在文件树/资源管理器选中图片后点 Inspector「添加选中」，或文件树右键「加入图片数组」（需当前节点已挂 ImgToFile）。列表可单项删除。空项忽略。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
 - `TemplateComponent.templatePath`（仅 Root）：可从 Finder 拖入 `.md`、粘贴本机/项目相对路径，或 **http(s) 远程 `.md` 地址**（pathname 以 `.md` 结尾，可带 query）。解析 `File.path`、`file://`、拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。本地拖入会缓存正文（打包后无 `/__local_fs` 时用）。远程地址**不缓存**，每次导出先下载。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
@@ -297,7 +299,7 @@ trim；若结果为空 → "untitled"
 ## 3.5 底部资源管理器
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
 - 【手动刷新】+ Window Focus 时轮询/重扫，图片增删后刷新列表。
-- 拖到 `framePath` 写入相对路径。
+- **多选（必须）**：无勾选框。单击 = 只选该项；**Ctrl/⌘+单击** 切换加入集合；已选项边框高亮。拖到 `framePath` 写入被拖那一项的相对路径。拖到 `fileArray` 时：若拖的图在多选集合中则追加全部，否则只追加该项。
 - **双击缩略图**：遮罩层放大查看原图（点遮罩 / 按钮 / `Esc` 关闭）。不改变拖到 `framePath` 的行为。
 ---
 
@@ -399,7 +401,7 @@ y = top  + height/2 - docH/2
 ```text
 {out}/test/UI/          # 普通 Sprite 图片 + .meta
 {out}/test/UI/zh/       # 挂了 LangSpriteComponent 的节点：该节点 Sprite 图片 + .meta
-{out}/test/UI/img/      # ImgToFile.toFile=img 且该节点 Sprite 有图
+{out}/test/UI/img/      # ImgToFile.toFile=img：该节点 Sprite 有图，和/或 fileArray 非空
 {out}/test/test.prefab
 {out}/test/test.prefab.meta
 {out}/test/test.ts      # 模板替换 FileName
@@ -413,12 +415,13 @@ y = top  + height/2 - docH/2
   - 项目内 JSON 仍可为中文文件名，只改导出包。
 
 ## 6.2 资源与稳定 UUID
-- **只打包** JSON 中实际引用的 `SpriteComponent.framePath`；缺图失败并列出路径。
+- **只打包** JSON 中实际引用的 `SpriteComponent.framePath`，以及各节点 `ImgToFileComponent.fileArray`（仅当该节点 **`toFile` 有效**）。缺图失败并列出路径。
 - 每个节点按自己的导出目录写图（文件名仍按 §5.6）：
   - 默认：`{out}/…/UI/`。
-  - 本节点挂了 `LangSpriteComponent` → `{out}/…/UI/zh/`（优先于 ImgToFile）。
+  - 本节点挂了 `LangSpriteComponent` → `{out}/…/UI/zh/`（优先于 ImgToFile；**只影响本节点 Sprite**，不影响 `fileArray`）。
   - 否则本节点挂了 `ImgToFileComponent` 且 **`toFile` 非空**、Sprite **有 `framePath`** → `{out}/…/UI/{toFile}/`。例：`toFile: "img"` → `UI/img/xxx.png`。`toFile` 相对 `UI/`，不要写 `UI/` 前缀；`\` → `/`；每段 `sanitizeFsName`；含 `..` / 空则视为未设置。
-  - `toFile` 为空或 Sprite 无图：**不做操作**，不建子目录、不改 UUID。
+  - `toFile` 为空或 Sprite 无图：**本节点 Sprite 不做改目录操作**，不换 UUID。
+  - **`fileArray`（必须）**：`toFile` 有效时，数组内每条项目相对路径**额外**写入同一 `{out}/…/UI/{toFile}/`（逻辑同 toFile：换 UUID、子目录 `.meta` 的 `imported: false`）。即使本节点 Sprite 无图 / 走了 LangSprite `UI/zh`，只要 `toFile` 有效仍打包 `fileArray`。`toFile` 无效则 **不打包** `fileArray`。不写入 Prefab `_spriteFrame`（除非该路径同时也是某节点 `framePath`）。空字符串忽略；同一 `(路径, 目录)` 只写一份。
 - 同一 `framePath` 落到不同目录时各写一份、各有 UUID；同一 `(framePath, 目录)` 只写一份。Prefab 里该节点的 `cc.Sprite._spriteFrame` 绑到**本节点目录**那份 `{uuid}@f9941`。
 - 进 `UI/zh` 或 `UI/{toFile}` **必须换 UUID**（种子见下）。禁止再指向 `UI/` 旧 UUID。
 - Prefab 内必须用 SpriteFrame UUID（`{uuid}@f9941`），禁止写入路径字符串。
@@ -442,7 +445,7 @@ y = top  + height/2 - docH/2
 - `ButtonComponent` → `cc.Button`：`transition` 见 §6.4；`target` 为 `node` 引用（`.` / 空 / 本节点名 → 自身，`_target` 指向本节点 `__id__`；否则相对子孙路径）。`clickEvents` 为空（运行时 BindUI 绑定）。
 - **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
 - `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 额外写入 `_langPath: "UI"`、`_bundleName` = 包名、`_langKey` = 导出图 stem，运行时加载 `UI/{lang}/{key}`。图片目录见 §6.2。
-- `ImgToFileComponent`：**不**写入 Prefab 组件，只改本节点 Sprite 图片的导出目录（§6.2）。
+- `ImgToFileComponent`：**不**写入 Prefab 组件。本节点 Sprite 导出目录见 §6.2；`fileArray` 只作为额外打包清单。
 - `TemplateComponent`：**不**写入 Prefab 组件，只影响配套 `.ts` 模板选择（§6.5）。只读 Root 上的实例；子节点上的忽略。
 - 无上述组件则仅 Node + UITransform。
 - 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本|Button|Lang 脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。
@@ -537,7 +540,7 @@ uieditor --help
 # 八、建议自测清单（实现完成后勾选）
 
 1. Chrome/Edge：新建项目 → 出现 `components.json` / `assets/` / `main.json`。
-2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
+2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片单击选中、Ctrl/⌘+点多选、双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 与 `ImgToFile.fileArray` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
 4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。相同像素层只写一份 PNG，多个节点共用 `framePath`；网页有进度框。
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
@@ -550,7 +553,7 @@ uieditor --help
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
-15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。无 Sprite 时添加列表没有 `ImgToFileComponent`；有 Sprite 才可加，去掉 Sprite 时 ImgToFile 一并删除。`toFile` 本机最近 10 条（刷新仍在、同值置顶）；再添加自动填最近一条，旁「最近」可点选。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，UUID 种子 `cocos-image:UI/zh:{framePath}`；`ImgToFile.toFile=img` 且有图 → `{pack}/UI/img/`，种子 `cocos-image:UI/img:{framePath}`，该图与 `UI/img.meta` 的 `imported` 为 false；toFile 空或无图仍在 `{pack}/UI/`。Prefab `_spriteFrame` 绑本节点目录的 UUID。覆盖导出先删旧包。
+15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。无 Sprite 时添加列表没有 `ImgToFileComponent`；有 Sprite 才可加，去掉 Sprite 时 ImgToFile 一并删除。`toFile` 本机最近 10 条（刷新仍在、同值置顶）；再添加自动填最近一条，旁「最近」可点选。Inspector `fileArray` 可从文件树/资源管理器单选或多选拖入（去重追加），或「添加选中」/文件树右键「加入图片数组」；列表可删单项。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，UUID 种子 `cocos-image:UI/zh:{framePath}`；`ImgToFile.toFile=img` 且有图 → `{pack}/UI/img/`，种子 `cocos-image:UI/img:{framePath}`；`fileArray` 内路径在 `toFile` 有效时同样进 `{pack}/UI/img/`（即使 Sprite 无图），缺图失败。该图与 `UI/img.meta` 的 `imported` 为 false；toFile 空时 Sprite 仍在 `{pack}/UI/` 且 **不打包** fileArray。Prefab `_spriteFrame` 绑本节点目录的 UUID。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
 17. Root 可添加 `TemplateComponent`，子节点添加列表无此项。无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath`（本机 / 相对 / `https://…/*.md`）则只在该文件内按 `templateType` **原样**选标题（`xxx_aaa` → `### xxx_aaa`）。远程地址导出前下载，进度框显示下载百分比。Finder 拖入 `.md` 能写入路径。打包后本地路径用拖入缓存（无缓存则选文件）。类型与路径各「最近」最多 10 条，再添加自动填。
 

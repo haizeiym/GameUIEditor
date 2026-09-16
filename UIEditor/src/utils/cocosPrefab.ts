@@ -16,6 +16,7 @@ import {
 } from './fs'
 import { sanitizeFsName } from './fsName'
 import { uniqueImageFileName, toExportBaseName } from './imageFileName'
+import { readImagePathList } from './imagePaths'
 import {
   buildPrefabScriptSource,
   buildTypescriptMeta,
@@ -342,19 +343,32 @@ export function resolveSpriteExportSubdir(node: UINode): SpriteExportSubdir {
   return normalizeToFileSubdir(inst?.toFile) ?? 'UI'
 }
 
+function addImageJob(
+  byKey: Map<string, ImageExportJob>,
+  sourcePath: string,
+  subdir: SpriteExportSubdir,
+) {
+  const trimmed = sourcePath.trim().replace(/\\/g, '/')
+  if (!trimmed) return
+  const key = imageJobKey(trimmed, subdir)
+  if (!byKey.has(key)) byKey.set(key, { sourcePath: trimmed, subdir })
+}
+
 /**
- * 每个 (framePath, 导出目录) 一份。LangSprite → UI/zh；ImgToFile.toFile 非空 → UI/{toFile}；否则 UI/。
- * 非 UI/ 目录换 UUID 种子，Prefab 按本表重绑 `_spriteFrame`。
+ * 每个 (路径, 导出目录) 一份。
+ * Sprite.framePath：LangSprite → UI/zh；否则 ImgToFile.toFile 非空 → UI/{toFile}；否则 UI/。
+ * ImgToFile.fileArray：仅当 toFile 有效时额外写入同一 UI/{toFile}（不受 LangSprite 影响）。
  */
 export function collectImageExportJobs(root: UINode): ImageExportJob[] {
   const byKey = new Map<string, ImageExportJob>()
   const walk = (n: UINode) => {
     const trimmed = readSpriteFramePath(n)
-    if (trimmed) {
-      const subdir = resolveSpriteExportSubdir(n)
-      const key = imageJobKey(trimmed, subdir)
-      if (!byKey.has(key)) {
-        byKey.set(key, { sourcePath: trimmed, subdir })
+    if (trimmed) addImageJob(byKey, trimmed, resolveSpriteExportSubdir(n))
+    const inst = n.components['ImgToFileComponent']
+    const extraDir = normalizeToFileSubdir(inst?.toFile)
+    if (extraDir) {
+      for (const p of readImagePathList(inst?.fileArray)) {
+        addImageJob(byKey, p, extraDir)
       }
     }
     n.children.forEach(walk)
@@ -1055,7 +1069,7 @@ export async function pathExists(
 
 /**
  * IO 无关的 Prefab 导出核心：写出
- * `{baseName}/UI/*`（LangSprite → `UI/zh`；ImgToFile.toFile=img → `UI/img`）
+ * `{baseName}/UI/*`（LangSprite → `UI/zh`；ImgToFile.toFile=img → `UI/img`，含 fileArray）
  * + `{baseName}/{baseName}.prefab` + `{baseName}.ts` + 各级 .meta
  */
 export async function exportCocosPrefabCore(

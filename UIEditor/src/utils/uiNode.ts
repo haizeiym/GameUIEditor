@@ -10,6 +10,7 @@ import type {
   Vec2,
 } from '../types'
 import { collectParentheticalContents } from './imageFileName'
+import { normalizeRelPath, readImagePathList } from './imagePaths'
 
 let idCounter = 0
 
@@ -120,8 +121,8 @@ function applyMovedFramePath(path: string, moved: { from: string; to: string }[]
 }
 
 /**
- * 资源被移动后，按 from→to 前缀规则改写 SpriteComponent.framePath。
- * 只改贴图路径，不改节点名、其它组件字段。
+ * 资源被移动后，按 from→to 前缀规则改写 Sprite.framePath 与 ImgToFile.fileArray。
+ * 不改节点名、其它组件字段。
  */
 export function remapSpriteFramePaths(
   node: unknown,
@@ -132,13 +133,27 @@ export function remapSpriteFramePaths(
   let changed = false
   const comps = rec.components
   if (comps && typeof comps === 'object' && !Array.isArray(comps)) {
-    const sprite = (comps as Record<string, unknown>)['SpriteComponent']
+    const bag = comps as Record<string, unknown>
+    const sprite = bag['SpriteComponent']
     if (sprite && typeof sprite === 'object' && !Array.isArray(sprite)) {
       const s = sprite as Record<string, unknown>
       if (typeof s.framePath === 'string' && s.framePath.trim()) {
         const next = applyMovedFramePath(s.framePath.trim(), moved)
         if (next !== s.framePath) {
           s.framePath = next
+          changed = true
+        }
+      }
+    }
+    const toFile = bag['ImgToFileComponent']
+    if (toFile && typeof toFile === 'object' && !Array.isArray(toFile)) {
+      const inst = toFile as Record<string, unknown>
+      const prev = readImagePathList(inst.fileArray)
+      if (prev.length) {
+        const next = prev.map((p) => applyMovedFramePath(normalizeRelPath(p), moved))
+        const same = next.length === prev.length && next.every((p, i) => p === prev[i])
+        if (!same) {
+          inst.fileArray = [...new Set(next)]
           changed = true
         }
       }
@@ -258,6 +273,8 @@ export function defaultValueForProp(def: PropDef): unknown {
     }
     case 'node':
       return typeof def.default === 'string' ? def.default : '.'
+    case 'array':
+      return Array.isArray(def.default) ? [...def.default] : []
     default:
       return def.default ?? null
   }

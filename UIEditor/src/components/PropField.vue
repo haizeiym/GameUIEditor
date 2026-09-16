@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { PropDef, Vec2 } from '../types'
 import { parseVec2 } from '../utils/node'
+import { mergeImagePaths, readImagePathList, readImagePathsTransfer } from '../utils/imagePaths'
 
 const props = defineProps<{
   def: PropDef
@@ -82,15 +83,31 @@ function onDrop(e: DragEvent) {
     emit('script-drop', e)
     return
   }
-  const path = e.dataTransfer?.getData('text/plain')
-  if (path) {
-    emit('update:modelValue', path)
+  const incoming = readImagePathsTransfer(e.dataTransfer)
+  if (!incoming.length) return
+  if (props.def.type === 'array') {
+    emit('update:modelValue', mergeImagePaths(props.modelValue, incoming))
     emit('commit')
+    return
   }
+  emit('update:modelValue', incoming[0])
+  emit('commit')
+}
+
+const listValue = computed(() => readImagePathList(props.modelValue))
+
+function removeListItem(index: number) {
+  const next = listValue.value.filter((_, i) => i !== index)
+  emit('update:modelValue', next)
+  emit('commit')
 }
 
 const placeholder = computed(() => {
-  if (dropKind.value === 'image') return '可从下方资源管理器拖入图片'
+  if (dropKind.value === 'image') {
+    return props.def.type === 'array'
+      ? '从文件树或资源管理器拖入图片（可多选）'
+      : '可从下方资源管理器拖入图片'
+  }
   if (dropKind.value === 'script')
     return '拖入 .ts 或 .ts.meta；Mac 上可再选同目录 .meta 文件'
   if (dropKind.value === 'markdown') return '拖入 .md、本机路径或 https://…/*.md'
@@ -210,6 +227,30 @@ const nodeSelectOptions = computed(() => {
       @update:model-value="setVec('y', $event ?? undefined)"
       @change="emit('commit')"
     />
+  </div>
+
+  <!-- array：图片路径列表 -->
+  <div
+    v-else-if="def.type === 'array'"
+    class="rounded p-1.5"
+    :class="dropKind ? 'ring-1 ring-dashed ring-zinc-600' : 'ring-1 ring-zinc-800'"
+    @dragover.prevent
+    @drop="onDrop"
+  >
+    <p v-if="!listValue.length" class="px-0.5 py-1 text-[11px] text-zinc-500">
+      {{ placeholder || '空数组' }}
+    </p>
+    <div v-for="(path, index) in listValue" :key="`${index}:${path}`" class="flex items-center gap-1 py-0.5">
+      <span class="min-w-0 flex-1 truncate text-[11px] text-zinc-300" :title="path">{{ path }}</span>
+      <button
+        type="button"
+        class="shrink-0 rounded px-1 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-red-400"
+        title="移除"
+        @click="removeListItem(index)"
+      >
+        ×
+      </button>
+    </div>
   </div>
 
   <!-- 未知类型：只读 JSON -->
