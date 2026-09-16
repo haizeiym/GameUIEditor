@@ -549,6 +549,26 @@ function size(width: number, height: number) {
   return { __type__: 'cc.Size', width, height }
 }
 
+/** TRIMMED/RAW 必须与 SpriteFrame.rect/originalSize 一致，否则编辑器 `_resized` 会改成 CUSTOM */
+function spriteUiContentSize(
+  node: UINode,
+  imageSizes: Map<string, { width: number; height: number }>,
+): { width: number; height: number } {
+  const fallback = {
+    width: Math.max(0, Number(node.width) || 0),
+    height: Math.max(0, Number(node.height) || 0),
+  }
+  const sprite = node.components['SpriteComponent']
+  if (!sprite) return fallback
+  const sizeMode = resolveSizeMode(sprite.sizeMode)
+  if (sizeMode === SizeMode.CUSTOM) return fallback
+  const framePath = typeof sprite.framePath === 'string' ? sprite.framePath.trim() : ''
+  if (!framePath) return fallback
+  const img = imageSizes.get(framePath)
+  if (!img || img.width <= 0 || img.height <= 0) return fallback
+  return { width: img.width, height: img.height }
+}
+
 function vec2(x: number, y: number) {
   return { __type__: 'cc.Vec2', x, y }
 }
@@ -565,6 +585,7 @@ export function buildPrefabObjects(
   scriptUuid?: string,
   componentDefs?: ComponentDefs,
   framePathToExportName: Map<string, string> = new Map(),
+  framePathToImageSize: Map<string, { width: number; height: number }> = new Map(),
 ): PrefabObject[] {
   const objects: PrefabObject[] = []
   const scriptType = scriptUuid ? compressUuid(scriptUuid) : null
@@ -616,6 +637,7 @@ export function buildPrefabObjects(
 
     // UITransform
     const uitId = objects.length
+    const contentSize = spriteUiContentSize(node, framePathToImageSize)
     objects.push({
       __type__: 'cc.UITransform',
       _name: '',
@@ -624,7 +646,7 @@ export function buildPrefabObjects(
       node: { __id__: nodeId },
       _enabled: true,
       __prefab: { __id__: uitId + 1 },
-      _contentSize: size(node.width || 0, node.height || 0),
+      _contentSize: size(contentSize.width, contentSize.height),
       _anchorPoint: vec2(0.5, 0.5),
       _id: '',
     })
@@ -989,6 +1011,7 @@ export async function exportCocosPrefabCore(
   const pathToUuid = new Map<string, string>()
   const pathToExportName = new Map<string, string>()
   const pathToBytes = new Map<string, Uint8Array>()
+  const pathToImageSize = new Map<string, { width: number; height: number }>()
   const usedUuids = new Set<string>()
   /** 与 `.ts.meta` / Prefab 根脚本组件共用 */
   const scriptUuid = stableUuid(`cocos-ts:${baseName}`)
@@ -1090,6 +1113,7 @@ export async function exportCocosPrefabCore(
     pathToUuid.set(job.sourcePath, uuid)
     pathToExportName.set(job.sourcePath, exportName)
     const { width, height } = readImageSizeFromBytes(bytes)
+    pathToImageSize.set(job.sourcePath, { width, height })
     const displayName = exportName.replace(/\.[^.]+$/, '')
     const fileExt = extForMeta(exportName)
 
@@ -1116,6 +1140,7 @@ export async function exportCocosPrefabCore(
     scriptUuid,
     options.componentDefs,
     pathToExportName,
+    pathToImageSize,
   )
   await fs.writeText(
     `${baseName}/${baseName}.prefab`,

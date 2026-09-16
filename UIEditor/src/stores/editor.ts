@@ -13,11 +13,10 @@ import {
 import {
   canAddComponent,
   cloneWithNewIds,
-  createComponentData,
   createNode,
-  ensureSimpleListHierarchy,
   findNodeById,
   findParentById,
+  mountComponentOnNode,
   normalizeUIData,
   serializeForDisk,
 } from '../utils/node'
@@ -402,28 +401,18 @@ export const useEditorStore = defineStore('editor', () => {
 
   // ---------- 组件操作 ----------
 
-  function ensureCompanionComponent(node: UINode, companion: string) {
-    if (node.components[companion]) return
-    const defs = project.componentDefs
-    const companionDef = defs[companion]
-    if (!companionDef) {
-      console.warn(`[editor] 无法自动添加 ${companion}：组件库中没有定义`)
-      return
-    }
-    if (!canAddComponent(node, companion, defs, node === currentUIData.value)) {
-      console.warn(`[editor] 无法自动添加 ${companion}：与已有组件互斥`)
-      ElMessage.warning(`无法自动添加 ${companion}：与已有组件互斥`)
-      return
-    }
-    node.components[companion] = createComponentData(companionDef)
-  }
-
   function addComponent(nodeId: string, type: string) {
     const node = findNodeById(currentUIData.value, nodeId)
-    const def = project.componentDefs[type]
-    if (!node || !def || !canAddComponent(node, type, project.componentDefs, node === currentUIData.value))
-      return
-    const data = createComponentData(def)
+    const defs = project.componentDefs
+    const def = defs[type]
+    const isRoot = node === currentUIData.value
+    if (!node || !def || !canAddComponent(node, type, defs, isRoot)) return
+    const mounted = mountComponentOnNode(node, type, defs, isRoot, (msg) => {
+      console.warn(`[editor] ${msg}`)
+      ElMessage.warning(msg)
+    })
+    if (!mounted) return
+    const data = node.components[type]!
     if (hasScriptBindProps(def)) {
       const latest = latestScriptBind(type)
       if (latest) {
@@ -436,19 +425,6 @@ export const useEditorStore = defineStore('editor', () => {
       if (latestType) data.templateType = latestType
       const latestPath = latestTemplatePath()
       if (latestPath) data.templatePath = latestPath
-    }
-    node.components[type] = data
-    if (type === 'SimpleListComponent') {
-      ensureSimpleListHierarchy(node)
-    }
-    if (type === 'ButtonComponent') {
-      node.components[type]!.target = '.'
-    }
-    if (type === 'LangSpriteComponent') {
-      ensureCompanionComponent(node, 'SpriteComponent')
-    }
-    if (type === 'LangLabelComponent') {
-      ensureCompanionComponent(node, 'LabelComponent')
     }
     commit()
   }

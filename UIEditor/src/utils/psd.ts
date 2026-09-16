@@ -11,7 +11,7 @@
  * - ag-psd 读盘后的 children 已是引擎顺序（底层在前），创建节点时按该顺序直接 push，禁止再 reverse。
  */
 import { initializeCanvas, readPsd, type Layer } from 'ag-psd'
-import type { UINode } from '../types'
+import type { ComponentDefs, UINode } from '../types'
 import {
   createExportProgressReporter,
   type OnExportProgress,
@@ -19,7 +19,7 @@ import {
 import { sanitizeFsName } from './fsName'
 import { uniqueImageFileName } from './imageFileName'
 import { hashRgba } from './sha256'
-import { createNode, serializeForDisk } from './uiNode'
+import { applyLayerNameComponentHints, createNode, serializeForDisk } from './uiNode'
 
 export { sanitizeFsName } from './fsName'
 
@@ -59,6 +59,8 @@ export interface ParsePsdOptions {
   rootWidth?: number
   rootHeight?: number
   onProgress?: OnExportProgress
+  /** 当前项目组件库；用于图层括号标注自动挂组件 */
+  componentDefs?: ComponentDefs
 }
 
 const DEFAULT_ROOT_WIDTH = 1366
@@ -321,6 +323,7 @@ export async function parsePsdBuffer(
       }
 
       toParentLocal(kids, node.x, node.y)
+      applyLayerNameComponentHints(node, name, opts.componentDefs, false)
       return node
     }
 
@@ -369,6 +372,7 @@ export async function parsePsdBuffer(
       sizeMode: 'TRIMMED',
       type: 'SIMPLE',
     }
+    applyLayerNameComponentHints(node, name, opts.componentDefs, false)
     return node
   }
 

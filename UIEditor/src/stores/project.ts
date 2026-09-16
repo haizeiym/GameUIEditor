@@ -287,6 +287,7 @@ export const useProjectStore = defineStore('project', () => {
       rootWidth: options?.rootWidth,
       rootHeight: options?.rootHeight,
       onProgress,
+      componentDefs: componentDefs.value,
     })
 
     onProgress?.({

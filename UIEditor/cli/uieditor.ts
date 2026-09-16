@@ -123,6 +123,27 @@ async function loadUiJson(filePath: string) {
   return root
 }
 
+async function loadComponentDefs(absProject: string) {
+  const compsCandidates = [
+    path.join(absProject, 'components.json'),
+    path.join(process.cwd(), 'config', 'components.json'),
+    path.join(process.cwd(), 'UIEditor', 'config', 'components.json'),
+    path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      '../config/components.json',
+    ),
+  ]
+  for (const compsPath of compsCandidates) {
+    try {
+      const text = await readFile(compsPath, 'utf8')
+      return parseComponentDefs(text)
+    } catch {
+      /* try next */
+    }
+  }
+  return undefined
+}
+
 async function cmdImportPsd(flags: Flags): Promise<void> {
   const psdPath = flagString(flags, 'psd')
   const project = flagString(flags, 'project')
@@ -145,6 +166,7 @@ async function cmdImportPsd(flags: Flags): Promise<void> {
       baseNameOverride: nameOpt,
       rootWidth: widthOpt ? Number(widthOpt) : undefined,
       rootHeight: heightOpt ? Number(heightOpt) : undefined,
+      componentDefs: await loadComponentDefs(absProject),
     },
   )
 
@@ -222,26 +244,7 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
   }
   const scriptTemplateMd = codePreviewMarkdown.cocosPrefab
 
-  // 项目 components.json（SimpleList 脚本绑定等）；缺失则尝试仓库内置 config
-  let componentDefs
-  const compsCandidates = [
-    path.join(absProject, 'components.json'),
-    path.join(process.cwd(), 'config', 'components.json'),
-    path.join(process.cwd(), 'UIEditor', 'config', 'components.json'),
-    path.resolve(
-      path.dirname(new URL(import.meta.url).pathname),
-      '../config/components.json',
-    ),
-  ]
-  for (const compsPath of compsCandidates) {
-    try {
-      const text = await readFile(compsPath, 'utf8')
-      componentDefs = parseComponentDefs(text)
-      break
-    } catch {
-      /* try next */
-    }
-  }
+  const componentDefs = await loadComponentDefs(absProject)
 
   const result = await exportCocosPrefabCore({
     baseName,

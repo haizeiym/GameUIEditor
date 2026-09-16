@@ -132,6 +132,7 @@
           { "label": "SCALE", "value": "SCALE" }
         ] }
     },
+    "abbreviation": "Btn",
     "componentType": 4
   },
   "LangSpriteComponent": {
@@ -147,6 +148,7 @@
         "displayName": "脚本UUID"
       }
     },
+    "abbreviation": "Langi",
     "componentType": 5
   },
   "LangLabelComponent": {
@@ -163,6 +165,17 @@
       }
     },
     "componentType": 6
+  },
+  "ImgToFileComponent": {
+    "properties": {
+      "toFile": {
+        "type": "string",
+        "default": "",
+        "displayName": "图片导出路径"
+      }
+    },
+    "abbreviation": "ToFile",
+    "componentType": 7
   },
   "TemplateComponent": {
     "properties": {

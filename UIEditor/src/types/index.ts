@@ -59,6 +59,11 @@ export interface ComponentDef {
   scriptPath?: ScriptBindField
   /** 导出时绑定的脚本 UUID（优先于 path 种子；与 .ts.meta 一致） */
   scriptUuid?: ScriptBindField
+  /**
+   * 图层括号标注用的短名（如 Btn、Langi），组件库内应唯一；大小写敏感。
+   * 与组件全名一起用于 PSD 导入时匹配，不参与写盘文件名。
+   */
+  abbreviation?: string
 }
 
 /** components.json 的整体结构 */

@@ -3,6 +3,7 @@
  * CLI 请直接 import `./uiNode`，避免 `import.meta.glob`。
  */
 export {
+  applyLayerNameComponentHints,
   canAddComponent,
   cloneWithNewIds,
   collectNodeRefOptions,
@@ -16,9 +17,12 @@ export {
   findNodeById,
   findParentById,
   genId,
+  matchComponentTypesFromText,
+  mountComponentOnNode,
   normalizeUIData,
   parseComponentDefs,
   parseVec2,
+  readComponentAbbreviation,
   resolveNodeRef,
   resolveScriptBindField,
   serializeForDisk,
@@ -163,6 +167,7 @@ const FALLBACK_COMPONENTS_JSON = `{
         ]
       }
     },
+    "abbreviation": "Btn",
     "componentType": 4
   },
   "LangSpriteComponent": {
@@ -170,6 +175,7 @@ const FALLBACK_COMPONENTS_JSON = `{
       "scriptPath": { "type": "string", "default": "", "displayName": "脚本路径" },
       "scriptUuid": { "type": "string", "default": "", "displayName": "脚本UUID" }
     },
+    "abbreviation": "Langi",
     "componentType": 5
   },
   "LangLabelComponent": {

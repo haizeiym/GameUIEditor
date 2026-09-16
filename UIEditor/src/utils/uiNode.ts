@@ -9,6 +9,7 @@ import type {
   UINode,
   Vec2,
 } from '../types'
+import { collectParentheticalContents } from './imageFileName'
 
 let idCounter = 0
 
@@ -286,6 +287,123 @@ export function resolveScriptBindField(field: ScriptBindField | undefined): stri
   return ''
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** 读 abbreviation；兼容误写成 `"abbreviation "` 的键 */
+export function readComponentAbbreviation(def: ComponentDef | undefined): string {
+  if (!def) return ''
+  const rec = def as ComponentDef & { ['abbreviation ']?: unknown }
+  const raw = rec.abbreviation ?? rec['abbreviation ']
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
+function tokenInText(text: string, token: string): boolean {
+  if (!token) return false
+  const re = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(token)}($|[^A-Za-z0-9_])`)
+  return re.test(text)
+}
+
+/** 从括号原文中匹配组件全名或 abbreviation（最长优先；大小写敏感） */
+export function matchComponentTypesFromText(text: string, defs: ComponentDefs): string[] {
+  const catalog: { token: string; type: string }[] = []
+  const seenToken = new Set<string>()
+  for (const [type, def] of Object.entries(defs)) {
+    if (!seenToken.has(type)) {
+      catalog.push({ token: type, type })
+      seenToken.add(type)
+    }
+    const abbr = readComponentAbbreviation(def)
+    if (abbr && !seenToken.has(abbr)) {
+      catalog.push({ token: abbr, type })
+      seenToken.add(abbr)
+    } else if (abbr && seenToken.has(abbr) && abbr !== type) {
+      console.warn(`[components] abbreviation「${abbr}」重复，忽略组件 ${type}`)
+    }
+  }
+  catalog.sort((a, b) => b.token.length - a.token.length || a.token.localeCompare(b.token))
+  const found: string[] = []
+  const seenType = new Set<string>()
+  for (const { token, type } of catalog) {
+    if (!tokenInText(text, token)) continue
+    if (seenType.has(type)) continue
+    seenType.add(type)
+    found.push(type)
+  }
+  return found
+}
+
+function ensureCompanionComponent(
+  node: UINode,
+  companion: string,
+  defs: ComponentDefs,
+  isRoot: boolean,
+  onWarn?: (message: string) => void,
+): void {
+  if (node.components[companion]) return
+  const companionDef = defs[companion]
+  if (!companionDef) {
+    onWarn?.(`无法自动添加 ${companion}：组件库中没有定义`)
+    return
+  }
+  if (!canAddComponent(node, companion, defs, isRoot)) {
+    onWarn?.(`无法自动添加 ${companion}：与已有组件互斥`)
+    return
+  }
+  node.components[companion] = createComponentData(companionDef)
+}
+
+/**
+ * 与 Inspector「添加组件」相同的挂载规则（互斥、伴随、Button.target、SimpleList 层级）。
+ * 不含网页最近记录 / commit。
+ */
+export function mountComponentOnNode(
+  node: UINode,
+  type: string,
+  defs: ComponentDefs,
+  isRoot = false,
+  onWarn?: (message: string) => void,
+): boolean {
+  const def = defs[type]
+  if (!def) return false
+  if (node.components[type]) return false
+  if (!canAddComponent(node, type, defs, isRoot)) return false
+  node.components[type] = createComponentData(def)
+  if (type === 'SimpleListComponent') ensureSimpleListHierarchy(node)
+  if (type === 'ButtonComponent') node.components[type]!.target = '.'
+  if (type === 'LangSpriteComponent') {
+    ensureCompanionComponent(node, 'SpriteComponent', defs, isRoot, onWarn)
+  }
+  if (type === 'LangLabelComponent') {
+    ensureCompanionComponent(node, 'LabelComponent', defs, isRoot, onWarn)
+  }
+  return true
+}
+
+/** PSD 图层原名括号 → 按组件库挂载；写盘名仍去掉括号 */
+export function applyLayerNameComponentHints(
+  node: UINode,
+  layerName: string,
+  defs: ComponentDefs | undefined,
+  isRoot = false,
+  onWarn?: (message: string) => void,
+): void {
+  if (!defs || !layerName.trim()) return
+  const types: string[] = []
+  const seen = new Set<string>()
+  for (const inner of collectParentheticalContents(layerName)) {
+    for (const type of matchComponentTypesFromText(inner, defs)) {
+      if (seen.has(type)) continue
+      seen.add(type)
+      types.push(type)
+    }
+  }
+  for (const type of types) {
+    mountComponentOnNode(node, type, defs, isRoot, onWarn)
+  }
+}
+
 /** 校验 components.json 文本合法性，返回解析结果或抛出错误信息 */
 export function parseComponentDefs(text: string): ComponentDefs {
   const parsed = JSON.parse(text) as unknown
@@ -296,7 +414,8 @@ export function parseComponentDefs(text: string): ComponentDefs {
     if (typeof def !== 'object' || def === null) {
       throw new Error(`组件 "${name}" 的定义必须是对象`)
     }
-    const properties = (def as Record<string, unknown>).properties
+    const rec = def as Record<string, unknown>
+    const properties = rec.properties
     if (typeof properties !== 'object' || properties === null) {
       throw new Error(`组件 "${name}" 缺少 properties 字段`)
     }
@@ -306,6 +425,12 @@ export function parseComponentDefs(text: string): ComponentDefs {
         throw new Error(`组件 "${name}" 的属性 "${propName}" 缺少 type 字段`)
       }
     }
+    const spacedKey = 'abbreviation '
+    if (typeof rec.abbreviation === 'string') rec.abbreviation = rec.abbreviation.trim()
+    if (!rec.abbreviation && typeof rec[spacedKey] === 'string') {
+      rec.abbreviation = String(rec[spacedKey]).trim()
+    }
+    if (spacedKey in rec) delete rec[spacedKey]
   }
   return parsed as ComponentDefs
 }

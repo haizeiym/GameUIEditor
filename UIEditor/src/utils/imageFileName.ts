@@ -14,6 +14,27 @@ function stripExt(rawName: string, extRe: RegExp): string {
   return rawName.replace(extRe, '').trim()
 }
 
+/** 收集半角/全角括号内原文（嵌套由内向外）；写盘名仍走 stripParentheticals */
+export function collectParentheticalContents(raw: string): string[] {
+  const contents: string[] = []
+  let s = raw
+  for (;;) {
+    let found = false
+    s = s.replace(/\(([^()]*)\)/g, (_, inner: string) => {
+      contents.push(inner)
+      found = true
+      return ''
+    })
+    s = s.replace(/（([^（）]*)）/g, (_, inner: string) => {
+      contents.push(inner)
+      found = true
+      return ''
+    })
+    if (!found) break
+  }
+  return contents
+}
+
 /** 去掉半角 `()`、全角 `（）` 及其中内容（嵌套则反复剥） */
 export function stripParentheticals(raw: string): string {
   let s = raw

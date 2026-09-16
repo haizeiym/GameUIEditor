@@ -96,10 +96,12 @@ interface UINode {
 - `components.json` 每项可含 `componentType?: number`。
 - 规则：同名组件只能挂一个；若定义了 `componentType`，则**同 `componentType` 也只能挂一个**。
 - Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`；**TemplateComponent 为 `1000`，仅允许挂在 Root**，不导出为 Prefab 组件。
-- **添加时的伴随组件（必须）**：
+- **`abbreviation?: string`**（组件库内应唯一，大小写敏感）：图层括号标注用的短名，**不**参与写盘文件名。内置：`ButtonComponent` → `Btn`，`LangSpriteComponent` → `Langi`。全名（如 `ButtonComponent`）始终可匹配。键名必须是 `abbreviation`（不要写成 `"abbreviation "`）。
+- **添加组件**（Inspector 与 PSD 括号标注共用 `mountComponentOnNode`）：
   - `ButtonComponent`：`target` 类型为 `node`，默认 `.`（当前节点）。Inspector 下拉为当前节点 + 子孙相对路径。
   - `LangSpriteComponent`：若本节点没有 `SpriteComponent` 则自动添加；因与 Label 互斥无法添加时告警，仍挂 LangSprite。
   - `LangLabelComponent`：若本节点没有 `LabelComponent` 则自动添加；与 Sprite 互斥时同上。
+  - 已挂同名 / 同 `componentType` 则跳过，不覆盖已有属性。
 
 ## 2.4 默认 `components.json`（新建项目必须写入；规格以本块为准）
 
@@ -189,7 +191,7 @@ interface UINode {
 }
 ```
 
-完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel / TemplateComponent），新建项目必须写入该文件，勿只拷上面的节选。
+完整默认库以仓库 `UIEditor/config/components.json` 为准（含 SimpleList / Button / LangSprite / LangLabel / TemplateComponent，以及 Button.`abbreviation: Btn`、LangSprite.`abbreviation: Langi`），新建项目必须写入该文件，勿只拷上面的节选。
 
 属性类型：`string` | `number` | `boolean` | `color` | `v2` | `enum` | `node`。
 - 枚举在 JSON / 内存中存 **字符串 value**（如 `"TRIMMED"`），导出 Prefab 时再映射为引擎数值。
@@ -339,6 +341,12 @@ y = top  + height/2 - docH/2
 - 同名 PNG：`name.png`、`name_1.png`…（大小写不敏感去重）。
 - **写盘文件名**（见 §5.6）：先去掉括号及内容；含汉字再转拼音首字母；`framePath` 用新文件名。
 - **节点名**：由该 PNG 生成的 Sprite 节点，`name` = 写盘文件去扩展名（与 `framePath` 末段 stem 一致，含碰撞后缀）。例：图层「背景」→ 文件 `bj.png`、节点 `bj`；「布局」撞名 → `bj_1.png` / 节点 `bj_1`。组节点仍用图层原名（可含括号）。
+- **括号标注组件（必须）**：用图层**原名**（含括号，未拼音）解析半角 `()` / 全角 `（）` 内文本，按当前项目 `components.json` 匹配**组件全名**或 **`abbreviation`**（最长优先；词边界匹配，避免 `Btn` 命中 `BtnClose` 的前缀）。像素层与组节点都做。
+  - `测试(测试 LangSpriteComponent)` / `测试(测试 Langi)` → 节点已有 Sprite，再挂 `LangSpriteComponent`（伴随 Sprite 已在则跳过）。
+  - `测试(测试 ButtonComponent)` / `测试(测试 Btn)` → 再挂 `ButtonComponent`（`target: "."`）。
+  - 挂载走 §2.3 同一套规则，与 Inspector「添加组件」不重复实现。已有同名组件则跳过。
+  - 写盘文件名 / 像素层节点名仍先去掉整段括号（§5.6）；组节点名保留括号，但同样解析标注。
+  - 与 §6.3 导出时「节点名 `Btn` 前缀补 Button」互补：括号把组件写入 JSON；导出见已有 `ButtonComponent` 即不再按前缀补。像素层拼音后节点名往往不是 `Btn…`，必须靠括号才能在 JSON 里挂上 Button。
 
 ## 5.6 图片写盘文件名（必须）
 导出 PNG/JPG（PSD 导入写盘、Prefab 打包复制）时，对**去掉扩展名后的 stem**按序处理：
@@ -411,10 +419,10 @@ y = top  + height/2 - docH/2
 - **compressUuid**（自定义脚本 `__type__`）：去连字符的 32 hex；保留前 5 位 hex，其余每 3 hex → 2 字符（字母表 `A–Za–z0–9+/`），得到 23 字符。与 `.ts.meta` 的 uuid 对应。
 
 ## 6.3 节点映射
-- 每节点 → `cc.Node` + `cc.UITransform`（`_contentSize=w/h`，锚点 `(0.5,0.5)`）。
+- 每节点 → `cc.Node` + `cc.UITransform`（锚点 `(0.5,0.5)`）。`Sprite` 的 `sizeMode` 为 TRIMMED/RAW 且有贴图时，`_contentSize` 必须写成贴图像素宽高（与 sprite-frame `trimType: none` 的 rect 一致）。否则 Creator 打开 Prefab 时 `_resized` 发现节点尺寸 ≠ 图尺寸，会把 `_sizeMode` 改成 CUSTOM。无贴图（`_spriteFrame: null`）仍写出所选 `_sizeMode`（TRIMMED=1），不得改成 CUSTOM。
 - `_layer = 1073741824`（UI_2D）。
 - `_lpos = (x, -y, 0)`；旋转单位四元数；缩放 `(1,1,1)`。
-- `SpriteComponent` → `cc.Sprite`：`_spriteFrame` / `_color` / `_type` / `_sizeMode`；`_isTrimmedMode = (sizeMode !== RAW)`。
+- `SpriteComponent` → `cc.Sprite`：`_spriteFrame` / `_color` / `_type` / `_sizeMode`；`_isTrimmedMode = (sizeMode !== RAW)`。`sizeMode` 缺省 TRIMMED。无 `framePath` 时 `_spriteFrame: null`，`_sizeMode` 仍按节点设置导出。
 - `LabelComponent` → `cc.Label`：`text` → `_string`；以及 color、fontSize、lineHeight、fontFamily、enableWrapText、isBold、对齐 / overflow / cacheMode；`_isSystemFontUsed: true`。
 - `OpacityComponent` → `cc.UIOpacity`：编辑器侧按 `0–1`（兼容误写 `0–255`）转为引擎 0–255。
 - `SimpleListComponent` → 同节点先挂 `cc.ScrollView`（`horizontal`/`vertical` 取自属性），再按 `scriptUuid`（可由 `scriptPath` 对应 `.meta` 自动填充）绑定自定义脚本；`ScrollView._content` 指向 `viewNode`（默认 `view/content`）。添加组件时自动创建子节点 `view` → `content`。导出时名为 `view` 的子节点自动挂 `cc.Mask`。
@@ -523,7 +531,7 @@ uieditor --help
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
-10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。图层 `test(test)` / `test（test）` → `test.png`；`测试（测试）` / `测试(测试)` → `cs.png` / 节点 `cs`。组节点仍为图层原名。
+10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。图层 `test(test)` / `test（test）` → `test.png`；`测试（测试）` / `测试(测试)` → `cs.png` / 节点 `cs`。`测试(测试 Langi)` / `测试(测试 LangSpriteComponent)` 节点带 `LangSpriteComponent`+Sprite；`测试(测试 Btn)` / `测试(测试 ButtonComponent)` 节点带 `ButtonComponent`。组节点仍为图层原名（可含括号），括号同样可标注组件。
 11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
