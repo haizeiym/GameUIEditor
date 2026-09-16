@@ -185,6 +185,17 @@ const FALLBACK_COMPONENTS_JSON = `{
     },
     "componentType": 6
   },
+  "ImgToFileComponent": {
+    "properties": {
+      "toFile": {
+        "type": "string",
+        "default": "",
+        "displayName": "图片导出路径"
+      }
+    },
+    "abbreviation": "ToFile",
+    "componentType": 7
+  },
   "TemplateComponent": {
     "properties": {
       "templateType": {

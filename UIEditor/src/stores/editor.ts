@@ -23,6 +23,7 @@ import {
 import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
+import { latestToFile } from '../utils/recentToFile'
 import { latestTemplatePath, latestTemplateType } from '../utils/recentTemplateTypes'
 import { isAbsoluteFsPath, pickLocalMarkdownText, readLocalFsText } from '../utils/scriptMeta'
 import { getCachedTemplateMd, rememberTemplateMd } from '../utils/templateMdCache'
@@ -426,6 +427,10 @@ export const useEditorStore = defineStore('editor', () => {
       const latestPath = latestTemplatePath()
       if (latestPath) data.templatePath = latestPath
     }
+    if (type === 'ImgToFileComponent') {
+      const latest = latestToFile()
+      if (latest) data.toFile = latest
+    }
     commit()
   }
 
@@ -433,6 +438,7 @@ export const useEditorStore = defineStore('editor', () => {
     const node = findNodeById(currentUIData.value, nodeId)
     if (!node || !node.components[type]) return
     delete node.components[type]
+    if (type === 'SpriteComponent') delete node.components['ImgToFileComponent']
     commit()
   }
 

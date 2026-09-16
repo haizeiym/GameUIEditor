@@ -14,6 +14,7 @@ import {
   writeBinaryFile,
   writeTextFile,
 } from './fs'
+import { sanitizeFsName } from './fsName'
 import { uniqueImageFileName, toExportBaseName } from './imageFileName'
 import {
   buildPrefabScriptSource,
@@ -293,48 +294,103 @@ function toOpacity255(v: unknown): number {
   return Math.round(Math.min(Math.max(v, 0), 255))
 }
 
-export type SpriteExportSubdir = 'UI' | 'UI/zh'
+/** 相对包根的图片目录，如 `UI` / `UI/zh` / `UI/img` */
+export type SpriteExportSubdir = string
 
 export interface ImageExportJob {
   sourcePath: string
   subdir: SpriteExportSubdir
 }
 
+export function imageJobKey(sourcePath: string, subdir: string): string {
+  return `${subdir}\0${sourcePath}`
+}
+
+function readSpriteFramePath(node: UINode): string {
+  const sprite = node.components['SpriteComponent']
+  return typeof sprite?.framePath === 'string' ? sprite.framePath.trim() : ''
+}
+
 /**
- * 每个 framePath 只导出一份。任意引用节点挂了 LangSpriteComponent → UI/zh，否则 UI/。
- * UI/zh 必须使用与 UI/ 不同的 UUID 种子，Prefab 按本表重绑 `_spriteFrame`。
+ * `toFile` → `UI/{seg}/…`。空、`UI`、含 `..` 视为无效（导出不改目录）。
+ * 不要写 `UI/` 前缀；`img` → `UI/img`。每段走 sanitizeFsName。
+ */
+export function normalizeToFileSubdir(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  let s = raw.trim().replace(/\\/g, '/')
+  if (!s) return null
+  s = s.replace(/^\/+/, '')
+  if (/^UI$/i.test(s)) return null
+  if (/^UI\//i.test(s)) s = s.slice(s.indexOf('/') + 1)
+  const parts = s.split('/').filter(Boolean)
+  if (parts.length === 0) return null
+  const safe: string[] = []
+  for (const part of parts) {
+    if (part === '.' || part === '..') {
+      console.warn(`[cocosPrefab] ImgToFile.toFile 含非法路径段「${part}」，已忽略`)
+      return null
+    }
+    safe.push(sanitizeFsName(part))
+  }
+  return `UI/${safe.join('/')}`
+}
+
+/** LangSprite 优先 UI/zh；否则 ImgToFile.toFile 非空 → UI/{toFile}；否则 UI/ */
+export function resolveSpriteExportSubdir(node: UINode): SpriteExportSubdir {
+  if (node.components['LangSpriteComponent']) return 'UI/zh'
+  const inst = node.components['ImgToFileComponent']
+  return normalizeToFileSubdir(inst?.toFile) ?? 'UI'
+}
+
+/**
+ * 每个 (framePath, 导出目录) 一份。LangSprite → UI/zh；ImgToFile.toFile 非空 → UI/{toFile}；否则 UI/。
+ * 非 UI/ 目录换 UUID 种子，Prefab 按本表重绑 `_spriteFrame`。
  */
 export function collectImageExportJobs(root: UINode): ImageExportJob[] {
-  const byPath = new Map<string, ImageExportJob>()
+  const byKey = new Map<string, ImageExportJob>()
   const walk = (n: UINode) => {
-    const sprite = n.components['SpriteComponent']
-    const path = sprite?.framePath
-    if (typeof path === 'string') {
-      const trimmed = path.trim()
-      if (trimmed) {
-        const langZh = Boolean(n.components['LangSpriteComponent'])
-        const prev = byPath.get(trimmed)
-        if (!prev) {
-          byPath.set(trimmed, { sourcePath: trimmed, subdir: langZh ? 'UI/zh' : 'UI' })
-        } else if (langZh) {
-          prev.subdir = 'UI/zh'
-        }
+    const trimmed = readSpriteFramePath(n)
+    if (trimmed) {
+      const subdir = resolveSpriteExportSubdir(n)
+      const key = imageJobKey(trimmed, subdir)
+      if (!byKey.has(key)) {
+        byKey.set(key, { sourcePath: trimmed, subdir })
       }
     }
     n.children.forEach(walk)
   }
   walk(root)
-  return [...byPath.values()]
+  return [...byKey.values()]
 }
 
 export function collectFramePaths(root: UINode): string[] {
   return [...new Set(collectImageExportJobs(root).map((j) => j.sourcePath))]
 }
 
-/** UI/ 保持原种子；进 UI/zh 必须换 UUID，导出时 Prefab 按新 UUID 重绑 */
+/** UI/ 保持原种子；其它子目录（zh / toFile）换种子，导出时 Prefab 按新 UUID 重绑 */
 export function imageUuidSeed(sourcePath: string, subdir: SpriteExportSubdir): string {
-  if (subdir === 'UI/zh') return `cocos-image:UI/zh:${sourcePath}`
-  return `cocos-image:${sourcePath}`
+  if (subdir === 'UI') return `cocos-image:${sourcePath}`
+  return `cocos-image:${subdir}:${sourcePath}`
+}
+
+function isDefaultUiDir(subdir: string): boolean {
+  return subdir === 'UI'
+}
+
+/** UI 之下需要单独写 .meta 的目录（不含 UI 自身），短路径在前 */
+function extraDirMetaPaths(subdirs: string[]): string[] {
+  const set = new Set<string>()
+  for (const subdir of subdirs) {
+    const parts = subdir.split('/').filter(Boolean)
+    let acc = ''
+    for (const part of parts) {
+      acc = acc ? `${acc}/${part}` : part
+      if (acc !== 'UI') set.add(acc)
+    }
+  }
+  return [...set].sort(
+    (a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b),
+  )
 }
 
 function uniqueFileName(used: Set<string>, sourcePath: string): string {
@@ -679,9 +735,12 @@ export function buildPrefabObjects(
 
     const sprite = node.components['SpriteComponent']
     if (sprite) {
-      const framePath = typeof sprite.framePath === 'string' ? sprite.framePath.trim() : ''
-      /** 绑定本导出份的 UUID：进 UI/zh 后已是新种子，与 .meta 一致 */
-      const spriteUuid = framePath ? framePathToSpriteUuid.get(framePath) : undefined
+      const framePath = readSpriteFramePath(node)
+      const spriteSubdir = resolveSpriteExportSubdir(node)
+      /** 绑定本导出份的 UUID：进 UI/zh 或 toFile 子目录后已是新种子，与 .meta 一致 */
+      const spriteUuid = framePath
+        ? framePathToSpriteUuid.get(imageJobKey(framePath, spriteSubdir))
+        : undefined
       const type = resolveSpriteType(sprite.type)
       const sizeMode = resolveSizeMode(sprite.sizeMode)
       const c = parseColor(sprite.color)
@@ -915,10 +974,10 @@ export function buildPrefabObjects(
     }
     const langSprite = node.components['LangSpriteComponent']
     if (langSprite) {
-      const spriteInst = node.components['SpriteComponent']
-      const framePath =
-        typeof spriteInst?.framePath === 'string' ? spriteInst.framePath.trim() : ''
-      const exportName = framePath ? framePathToExportName.get(framePath) : undefined
+      const framePath = readSpriteFramePath(node)
+      const exportName = framePath
+        ? framePathToExportName.get(imageJobKey(framePath, resolveSpriteExportSubdir(node)))
+        : undefined
       const langKey = exportName
         ? exportName.replace(/\.[^.]+$/, '')
         : node.name.replace(/^Langi/i, '') || node.name
@@ -996,7 +1055,7 @@ export async function pathExists(
 
 /**
  * IO 无关的 Prefab 导出核心：写出
- * `{baseName}/UI/*`（LangSprite 节点图片在 `{baseName}/UI/zh/*`）
+ * `{baseName}/UI/*`（LangSprite → `UI/zh`；ImgToFile.toFile=img → `UI/img`）
  * + `{baseName}/{baseName}.prefab` + `{baseName}.ts` + 各级 .meta
  */
 export async function exportCocosPrefabCore(
@@ -1088,7 +1147,8 @@ export async function exportCocosPrefabCore(
     return set
   }
 
-  const hasZh = jobs.some((j) => j.subdir === 'UI/zh')
+  const extraDirs = extraDirMetaPaths(jobs.map((j) => j.subdir))
+  const hasExtra = extraDirs.length > 0
 
   await report('write-images', '写入目录元数据…')
   await fs.writeText(
@@ -1097,21 +1157,22 @@ export async function exportCocosPrefabCore(
   )
   await fs.writeText(
     `${baseName}/UI.meta`,
-    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`), !hasZh), null, 2)}\n`,
+    `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI`), !hasExtra), null, 2)}\n`,
   )
 
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i]!
     const bytes = pathToBytes.get(job.sourcePath)!
     const exportName = uniqueFileName(usedNames(job.subdir), job.sourcePath)
-    const isZh = job.subdir === 'UI/zh'
-    const uuid = stableUuid(imageUuidSeed(job.sourcePath, job.subdir), isZh ? 4 : 5)
+    const extraDir = !isDefaultUiDir(job.subdir)
+    const uuid = stableUuid(imageUuidSeed(job.sourcePath, job.subdir), extraDir ? 4 : 5)
     if (usedUuids.has(uuid)) {
       console.warn(`[cocosPrefab] 图片 UUID 冲突：${job.subdir}/${job.sourcePath} → ${uuid}`)
     }
     usedUuids.add(uuid)
-    pathToUuid.set(job.sourcePath, uuid)
-    pathToExportName.set(job.sourcePath, exportName)
+    const key = imageJobKey(job.sourcePath, job.subdir)
+    pathToUuid.set(key, uuid)
+    pathToExportName.set(key, exportName)
     const { width, height } = readImageSizeFromBytes(bytes)
     pathToImageSize.set(job.sourcePath, { width, height })
     const displayName = exportName.replace(/\.[^.]+$/, '')
@@ -1121,14 +1182,14 @@ export async function exportCocosPrefabCore(
     await fs.writeBinary(`${baseName}/${job.subdir}/${exportName}`, bytes)
     await fs.writeText(
       `${baseName}/${job.subdir}/${exportName}.meta`,
-      `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt, !isZh), null, 2)}\n`,
+      `${JSON.stringify(buildImageMeta(uuid, displayName, width, height, fileExt, !extraDir), null, 2)}\n`,
     )
   }
 
-  if (hasZh) {
+  for (const dir of extraDirs) {
     await fs.writeText(
-      `${baseName}/UI/zh.meta`,
-      `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/UI/zh`), false), null, 2)}\n`,
+      `${baseName}/${dir}.meta`,
+      `${JSON.stringify(buildDirectoryMeta(stableUuid(`cocos-dir:${baseName}/${dir}`), false), null, 2)}\n`,
     )
   }
 
@@ -1148,7 +1209,7 @@ export async function exportCocosPrefabCore(
   )
   await fs.writeText(
     `${baseName}/${baseName}.prefab.meta`,
-    `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName, !hasZh), null, 2)}\n`,
+    `${JSON.stringify(buildPrefabMeta(stableUuid(`cocos-prefab:${baseName}`), baseName, !hasExtra), null, 2)}\n`,
   )
 
   await report('write-script', `写出配套脚本：${baseName}.ts`)

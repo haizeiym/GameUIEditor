@@ -16,6 +16,7 @@ import {
   listRecentScriptBinds,
   rememberScriptBind,
 } from '../utils/recentScriptBinds'
+import { listRecentToFile, rememberToFile } from '../utils/recentToFile'
 import {
   listRecentTemplatePaths,
   listRecentTemplateTypes,
@@ -200,6 +201,9 @@ function recentMenu(type: string, propName: string): { command: string; label: s
       label: item.split(/[/\\]/).pop() || item,
     }))
   }
+  if (propName === 'toFile') {
+    return listRecentToFile().map((item) => ({ command: item, label: item }))
+  }
   return []
 }
 
@@ -223,6 +227,15 @@ function onRecentCommand(type: string, propName: string, command: string) {
     if (!comp) return
     comp.templatePath = command
     rememberTemplatePath(command)
+    editor.commit()
+    return
+  }
+  if (propName === 'toFile') {
+    if (!node.value) return
+    const comp = node.value.components[type]
+    if (!comp) return
+    comp.toFile = command
+    rememberToFile(command)
     editor.commit()
   }
 }
@@ -251,6 +264,10 @@ function onPropCommit(type: string, propName: string) {
   if (propName === 'templatePath' && node.value) {
     const raw = node.value.components[type]?.templatePath
     if (typeof raw === 'string' && raw.trim()) rememberTemplatePath(raw)
+  }
+  if (propName === 'toFile' && node.value) {
+    const raw = node.value.components[type]?.toFile
+    if (typeof raw === 'string' && raw.trim()) rememberToFile(raw)
   }
   editor.commit()
 }

@@ -323,7 +323,9 @@ export async function parsePsdBuffer(
       }
 
       toParentLocal(kids, node.x, node.y)
-      applyLayerNameComponentHints(node, name, opts.componentDefs, false)
+      applyLayerNameComponentHints(node, name, opts.componentDefs, false, (msg) => {
+        console.warn(`[psd] ${msg}`)
+      })
       return node
     }
 
@@ -372,7 +374,9 @@ export async function parsePsdBuffer(
       sizeMode: 'TRIMMED',
       type: 'SIMPLE',
     }
-    applyLayerNameComponentHints(node, name, opts.componentDefs, false)
+    applyLayerNameComponentHints(node, name, opts.componentDefs, false, (msg) => {
+      console.warn(`[psd] ${msg}`)
+    })
     return node
   }
 

@@ -45,6 +45,7 @@ export function createDefaultUIData(width = 1366, height = 768): UINode {
 /**
  * 判断节点是否还能添加指定组件。
  * 规则：同名组件只能一个；若定义了 componentType，则同类型也只能一个。
+ * TemplateComponent 仅 Root；ImgToFileComponent 必须已有 SpriteComponent。
  */
 export function canAddComponent(
   node: UINode,
@@ -53,6 +54,7 @@ export function canAddComponent(
   isRoot = false,
 ): boolean {
   if (type === 'TemplateComponent' && !isRoot) return false
+  if (type === 'ImgToFileComponent' && !node.components['SpriteComponent']) return false
   if (node.components[type]) return false
   const def = defs[type]
   if (!def) return false
@@ -368,6 +370,10 @@ export function mountComponentOnNode(
   const def = defs[type]
   if (!def) return false
   if (node.components[type]) return false
+  if (type === 'ImgToFileComponent' && !node.components['SpriteComponent']) {
+    onWarn?.('ImgToFileComponent 只能添加在已有 SpriteComponent 的节点上')
+    return false
+  }
   if (!canAddComponent(node, type, defs, isRoot)) return false
   node.components[type] = createComponentData(def)
   if (type === 'SimpleListComponent') ensureSimpleListHierarchy(node)
