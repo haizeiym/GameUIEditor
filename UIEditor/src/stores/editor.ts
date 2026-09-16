@@ -14,11 +14,14 @@ import {
   canAddComponent,
   cloneWithNewIds,
   createNode,
+  detachChild,
   findNodeById,
   findParentById,
+  isStrictDescendant,
   mountComponentOnNode,
   normalizeUIData,
   serializeForDisk,
+  topLevelSelectedIds,
 } from '../utils/node'
 import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
@@ -48,6 +51,8 @@ export const useEditorStore = defineStore('editor', () => {
   const currentFileHandle = shallowRef<FileSystemFileHandle | null>(null)
   const currentFilePath = ref('')
   const selectedId = ref<string | null>(null)
+  /** 节点树多选（含当前 selectedId；不含已删节点） */
+  const selectedIds = ref<string[]>([])
   const saveState = ref<SaveState>('idle')
 
   /** 设计分辨率（默认横屏 1366×768）；画布中心为坐标原点 (0,0) */
@@ -67,9 +72,72 @@ export const useEditorStore = defineStore('editor', () => {
   const selectedNode = computed(() => findNodeById(currentUIData.value, selectedId.value))
   const rootId = computed(() => currentUIData.value?._id ?? null)
   const isRootSelected = computed(() => selectedId.value !== null && selectedId.value === rootId.value)
+  const selectedCount = computed(() => selectedIds.value.length)
   const canUndo = computed(() => past.value.length > 0)
   const canRedo = computed(() => future.value.length > 0)
   const resolutionLabel = computed(() => `${canvasWidth.value}×${canvasHeight.value}`)
+
+  function pruneSelection() {
+    const root = currentUIData.value
+    if (!root) {
+      selectedId.value = null
+      selectedIds.value = []
+      return
+    }
+    selectedIds.value = selectedIds.value.filter((id) => findNodeById(root, id))
+    if (!findNodeById(root, selectedId.value)) {
+      selectedId.value = selectedIds.value[0] ?? root._id
+    }
+    if (selectedId.value && !selectedIds.value.includes(selectedId.value)) {
+      selectedIds.value = [selectedId.value]
+    }
+  }
+
+  /** additive=true 为 Ctrl/⌘ 切换；Root 不进入多选集合 */
+  function selectNode(id: string | null, additive = false) {
+    const root = currentUIData.value
+    if (!root || !id) {
+      selectedId.value = root?._id ?? null
+      selectedIds.value = selectedId.value ? [selectedId.value] : []
+      return
+    }
+    if (!findNodeById(root, id)) return
+    if (additive && id !== root._id) {
+      const set = new Set(selectedIds.value.filter((x) => x !== root._id))
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
+      if (!set.size) {
+        selectedId.value = id
+        selectedIds.value = [id]
+        return
+      }
+      selectedIds.value = [...set]
+      selectedId.value = id
+      return
+    }
+    selectedId.value = id
+    selectedIds.value = [id]
+  }
+
+  function setSelectedIds(ids: string[]) {
+    const root = currentUIData.value
+    if (!root) {
+      selectedIds.value = []
+      return
+    }
+    const next = ids.filter((id) => id !== root._id && findNodeById(root, id))
+    selectedIds.value = next
+    if (selectedId.value && next.includes(selectedId.value)) return
+    selectedId.value = next[next.length - 1] ?? root._id
+    if (!next.length) selectedIds.value = selectedId.value ? [selectedId.value] : []
+  }
+
+  function reindexZ(n: UINode) {
+    n.children.forEach((c, i) => {
+      c.zIndex = i
+      reindexZ(c)
+    })
+  }
 
   function syncOrientation(width: number, height: number) {
     orientation.value = width >= height ? 'landscape' : 'portrait'
@@ -183,9 +251,7 @@ export const useEditorStore = defineStore('editor', () => {
   async function applySnapshot(snap: string) {
     suppressWatch = true
     currentUIData.value = JSON.parse(snap) as UINode
-    if (!findNodeById(currentUIData.value, selectedId.value)) {
-      selectedId.value = currentUIData.value._id
-    }
+    pruneSelection()
     // 撤销/重做分辨率或横竖屏后，画布框与 Root 保持一致
     if (currentUIData.value) syncResolutionFromRoot(currentUIData.value)
     await nextTick()
@@ -228,6 +294,7 @@ export const useEditorStore = defineStore('editor', () => {
     currentFileHandle.value = handle
     currentFilePath.value = path
     selectedId.value = data._id
+    selectedIds.value = [data._id]
     syncResolutionFromRoot(data)
     // Root 尺寸 = 设计分辨率（横竖屏均如此）
     ensureRootMatchesResolution(false)
@@ -357,47 +424,86 @@ export const useEditorStore = defineStore('editor', () => {
     const node = createNode(`Node_${parent.children.length + 1}`, parent.children.length)
     parent.children.push(node)
     commit()
-    selectedId.value = node._id
+    selectNode(node._id)
   }
 
   function duplicateNode(id: string) {
-    if (!currentUIData.value || id === rootId.value) return
-    const parent = findParentById(currentUIData.value, id)
-    const node = findNodeById(currentUIData.value, id)
-    if (!parent || !node) return
-    const copy = cloneWithNewIds(node)
-    copy.name = `${node.name}_copy`
-    const index = parent.children.indexOf(node)
-    parent.children.splice(index + 1, 0, copy)
-    parent.children.forEach((c, i) => (c.zIndex = i))
+    duplicateNodes([id])
+  }
+
+  function duplicateNodes(ids: string[]) {
+    const root = currentUIData.value
+    if (!root) return
+    const top = topLevelSelectedIds(root, ids, root._id)
+    if (!top.length) return
+    const copies: string[] = []
+    for (const id of top) {
+      const parent = findParentById(root, id)
+      const node = findNodeById(root, id)
+      if (!parent || !node) continue
+      const copy = cloneWithNewIds(node)
+      copy.name = `${node.name}_copy`
+      const index = parent.children.indexOf(node)
+      parent.children.splice(index + 1, 0, copy)
+      copies.push(copy._id)
+    }
+    if (!copies.length) return
+    reindexZ(root)
     commit()
-    selectedId.value = copy._id
+    selectedIds.value = copies
+    selectedId.value = copies[copies.length - 1] ?? null
   }
 
   function removeNode(id: string) {
-    if (!currentUIData.value || id === rootId.value) return
-    const parent = findParentById(currentUIData.value, id)
-    if (!parent) return
-    const index = parent.children.findIndex((c) => c._id === id)
-    if (index < 0) return
-    parent.children.splice(index, 1)
+    removeNodes([id])
+  }
+
+  function removeNodes(ids: string[]) {
+    const root = currentUIData.value
+    if (!root) return
+    const top = topLevelSelectedIds(root, ids, root._id)
+    if (!top.length) return
+    const fallbackParent = findParentById(root, top[0]!)
+    for (const id of top) detachChild(root, id)
+    reindexZ(root)
     commit()
-    if (!findNodeById(currentUIData.value, selectedId.value)) {
-      selectedId.value = parent._id
-    }
+    const next = fallbackParent && findNodeById(root, fallbackParent._id) ? fallbackParent._id : root._id
+    selectNode(next)
   }
 
   /** 节点树拖拽结束后：按新顺序重排 zIndex 并提交历史（下标越大越靠上） */
   function afterTreeDrop() {
     if (!currentUIData.value) return
-    const walk = (n: UINode) => {
-      n.children.forEach((c, i) => {
-        c.zIndex = i
-        walk(c)
-      })
-    }
-    walk(currentUIData.value)
+    reindexZ(currentUIData.value)
     commit()
+  }
+
+  /**
+   * el-tree 已把拖动节点放到落点。若拖的是多选之一，把其余顶层选中节点接到同一父级、紧随其后。
+   */
+  function afterMultiTreeDrop(draggedId: string) {
+    const root = currentUIData.value
+    if (!root) return
+    const top = topLevelSelectedIds(root, selectedIds.value, root._id)
+    if (top.length <= 1 || !top.includes(draggedId)) {
+      afterTreeDrop()
+      return
+    }
+    const parent = findParentById(root, draggedId)
+    if (!parent) {
+      afterTreeDrop()
+      return
+    }
+    const rest: UINode[] = []
+    for (const id of top) {
+      if (id === draggedId) continue
+      if (id === parent._id || isStrictDescendant(root, id, parent._id)) continue
+      const node = detachChild(root, id)
+      if (node) rest.push(node)
+    }
+    const idx = parent.children.findIndex((c) => c._id === draggedId)
+    parent.children.splice(Math.max(0, idx) + 1, 0, ...rest)
+    afterTreeDrop()
   }
 
   // ---------- 组件操作 ----------
@@ -447,6 +553,8 @@ export const useEditorStore = defineStore('editor', () => {
     currentFileHandle,
     currentFilePath,
     selectedId,
+    selectedIds,
+    selectedCount,
     selectedNode,
     rootId,
     isRootSelected,
@@ -472,8 +580,13 @@ export const useEditorStore = defineStore('editor', () => {
     exportCocosCreatorPrefab,
     addChild,
     duplicateNode,
+    duplicateNodes,
     removeNode,
+    removeNodes,
     afterTreeDrop,
+    afterMultiTreeDrop,
+    selectNode,
+    setSelectedIds,
     addComponent,
     removeComponent,
   }

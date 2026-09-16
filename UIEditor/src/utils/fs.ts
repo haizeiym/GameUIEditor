@@ -84,6 +84,109 @@ export async function removeEntryByPath(
   await dir.removeEntry(parts[parts.length - 1], { recursive: true })
 }
 
+export function parentDirPath(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  parts.pop()
+  return parts.join('/')
+}
+
+/** 去掉祖先也在集合中的路径（子随父移动） */
+export function topLevelEntryPaths(paths: string[]): string[] {
+  const set = new Set(paths.map((p) => p.trim()).filter(Boolean))
+  return [...set]
+    .filter((p) => {
+      const parts = p.split('/').filter(Boolean)
+      for (let i = 1; i < parts.length; i++) {
+        if (set.has(parts.slice(0, i).join('/'))) return false
+      }
+      return true
+    })
+    .sort((a, b) => a.localeCompare(b))
+}
+
+export function remapMovedPath(path: string, from: string, to: string): string {
+  if (path === from) return to
+  if (from && path.startsWith(`${from}/`)) return `${to}${path.slice(from.length)}`
+  return path
+}
+
+async function hasChildNamed(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
+  try {
+    await dir.getFileHandle(name)
+    return true
+  } catch {
+    /* 不是文件 */
+  }
+  try {
+    await dir.getDirectoryHandle(name)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function copyDirectory(
+  src: FileSystemDirectoryHandle,
+  destParent: FileSystemDirectoryHandle,
+  destName: string,
+): Promise<void> {
+  const dest = await destParent.getDirectoryHandle(destName, { create: true })
+  for await (const child of src.values()) {
+    if (child.kind === 'file') {
+      const file = await (child as FileSystemFileHandle).getFile()
+      const out = await dest.getFileHandle(child.name, { create: true })
+      await writeBinaryFile(out, new Uint8Array(await file.arrayBuffer()))
+    } else {
+      await copyDirectory(child as FileSystemDirectoryHandle, dest, child.name)
+    }
+  }
+}
+
+/** 复制文件或文件夹到新路径（不删源）。目标已存在则失败。 */
+export async function copyEntryByPath(
+  root: FileSystemDirectoryHandle,
+  srcPath: string,
+  destPath: string,
+): Promise<void> {
+  const srcParts = srcPath.split('/').filter(Boolean)
+  const destParts = destPath.split('/').filter(Boolean)
+  if (!srcParts.length || !destParts.length) throw new Error('无效路径')
+  if (srcPath === destPath) return
+  if (destPath === srcPath || destPath.startsWith(`${srcPath}/`)) {
+    throw new Error('不能复制到自身或子目录')
+  }
+  const srcParent = await getDirectoryHandleByPath(root, srcParts.slice(0, -1).join('/'))
+  const destParent = await getDirectoryHandleByPath(root, destParts.slice(0, -1).join('/'), true)
+  if (!srcParent || !destParent) throw new Error('找不到源或目标目录')
+  const srcName = srcParts[srcParts.length - 1]!
+  const destName = destParts[destParts.length - 1]!
+  if (await hasChildNamed(destParent, destName)) {
+    throw new Error(`目标已存在：${destPath}`)
+  }
+  try {
+    const fileHandle = await srcParent.getFileHandle(srcName)
+    const file = await fileHandle.getFile()
+    const out = await destParent.getFileHandle(destName, { create: true })
+    await writeBinaryFile(out, new Uint8Array(await file.arrayBuffer()))
+    return
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('目标已存在')) throw err
+  }
+  const dirHandle = await srcParent.getDirectoryHandle(srcName)
+  await copyDirectory(dirHandle, destParent, destName)
+}
+
+/** 移动：先复制再删除源 */
+export async function moveEntryByPath(
+  root: FileSystemDirectoryHandle,
+  srcPath: string,
+  destPath: string,
+): Promise<void> {
+  if (srcPath === destPath) return
+  await copyEntryByPath(root, srcPath, destPath)
+  await removeEntryByPath(root, srcPath)
+}
+
 function shouldSkip(name: string): boolean {
   return name.startsWith('.') || name === 'node_modules'
 }

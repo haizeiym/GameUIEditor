@@ -11,12 +11,14 @@ export {
   createDefaultUIData,
   createNode,
   defaultValueForProp,
+  detachChild,
   ensureSimpleListHierarchy,
   findDescendantByName,
   findDescendantByPath,
   findNodeById,
   findParentById,
   genId,
+  isStrictDescendant,
   matchComponentTypesFromText,
   mountComponentOnNode,
   normalizeUIData,
@@ -26,6 +28,7 @@ export {
   resolveNodeRef,
   resolveScriptBindField,
   serializeForDisk,
+  topLevelSelectedIds,
 } from './uiNode'
 
 /**

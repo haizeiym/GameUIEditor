@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { ElTree } from 'element-plus'
+import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { FileEntry } from '../types'
 import { useProjectStore } from '../stores/project'
 import { useEditorStore } from '../stores/editor'
+import { getFileHandleByPath, parentDirPath, remapMovedPath, topLevelEntryPaths } from '../utils/fs'
 
 const project = useProjectStore()
 const editor = useEditorStore()
+const treeRef = ref<InstanceType<typeof ElTree>>()
+const checkedPaths = ref<string[]>([])
+let syncingChecks = false
 
 const menu = reactive({
   visible: false,
@@ -19,10 +25,38 @@ const menu = reactive({
 const menuParentPath = computed(() => {
   if (!menu.entry) return ''
   if (menu.entry.kind === 'directory') return menu.entry.path
-  const parts = menu.entry.path.split('/')
-  parts.pop()
-  return parts.join('/')
+  return parentDirPath(menu.entry.path)
 })
+
+const menuBatchPaths = computed(() => {
+  const target = menu.entry?.path
+  if (!target) return [] as string[]
+  const raw =
+    checkedPaths.value.includes(target) && checkedPaths.value.length > 1
+      ? checkedPaths.value
+      : [target]
+  return topLevelEntryPaths(raw)
+})
+
+watch(
+  () => project.fileTree,
+  async () => {
+    const alive = new Set<string>()
+    const walk = (entries: FileEntry[]) => {
+      for (const e of entries) {
+        alive.add(e.path)
+        if (e.children) walk(e.children)
+      }
+    }
+    walk(project.fileTree)
+    checkedPaths.value = checkedPaths.value.filter((p) => alive.has(p))
+    await nextTick()
+    if (!treeRef.value) return
+    syncingChecks = true
+    treeRef.value.setCheckedKeys(checkedPaths.value)
+    syncingChecks = false
+  },
+)
 
 async function onDblClick(entry: FileEntry) {
   if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.json')) return
@@ -38,10 +72,75 @@ async function onDblClick(entry: FileEntry) {
   }
 }
 
-/** 单击文件夹 → 资源管理器只显示该目录下图片 */
-function onClick(entry: FileEntry) {
+function onClick(entry: FileEntry, _node: Node, ev: MouseEvent) {
+  const additive = ev.ctrlKey || ev.metaKey
+  if (additive) {
+    const set = new Set(checkedPaths.value)
+    if (set.has(entry.path)) set.delete(entry.path)
+    else set.add(entry.path)
+    checkedPaths.value = [...set]
+    treeRef.value?.setCheckedKeys(checkedPaths.value)
+  } else {
+    checkedPaths.value = [entry.path]
+    treeRef.value?.setCheckedKeys(checkedPaths.value)
+  }
   if (entry.kind === 'directory') {
     project.setAssetFolderFilter(entry.path)
+  }
+}
+
+function onCheck(_data: FileEntry, info: { checkedKeys: string[] }) {
+  if (syncingChecks) return
+  checkedPaths.value = info.checkedKeys
+}
+
+function movingPaths(dragging: Node): string[] {
+  const src = (dragging.data as FileEntry).path
+  const raw = checkedPaths.value.includes(src) && checkedPaths.value.length > 1
+    ? checkedPaths.value
+    : [src]
+  return topLevelEntryPaths(raw)
+}
+
+function allowDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'next'): boolean {
+  const dest = dropNode.data as FileEntry
+  if (type === 'inner' && dest.kind !== 'directory') return false
+  const moving = movingPaths(dragging)
+  const innerPath = type === 'inner' && dest.kind === 'directory' ? dest.path : parentDirPath(dest.path)
+  for (const p of moving) {
+    if (dest.path === p || dest.path.startsWith(`${p}/`)) return false
+    if (innerPath === p || (innerPath && innerPath.startsWith(`${p}/`))) return false
+  }
+  return true
+}
+
+function applyOpenedRemap(moved: { from: string; to: string }[]) {
+  const opened = editor.currentFilePath
+  if (!opened) return
+  let next = opened
+  for (const { from, to } of moved) next = remapMovedPath(next, from, to)
+  if (next === opened) return
+  editor.currentFilePath = next
+  void (async () => {
+    if (!project.dirHandle) return
+    const handle = await getFileHandleByPath(project.dirHandle, next)
+    editor.currentFileHandle = handle
+  })()
+}
+
+async function onNodeDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'next') {
+  const dest = dropNode.data as FileEntry
+  const destDir =
+    type === 'inner' && dest.kind === 'directory' ? dest.path : parentDirPath(dest.path)
+  const srcs = movingPaths(dragging)
+  try {
+    const moved = await project.moveEntries(srcs, destDir)
+    applyOpenedRemap(moved)
+    checkedPaths.value = moved.map((m) => m.to)
+    if (moved.length) ElMessage.success(`已移动 ${moved.length} 项`)
+  } catch (err) {
+    ElMessage.error(`移动失败：${String(err)}`)
+    await project.refreshFileTree()
   }
 }
 
@@ -52,13 +151,16 @@ function onContextMenu(event: MouseEvent, data: FileEntry) {
   menu.x = event.clientX
   menu.y = event.clientY
   menu.visible = true
+  if (!checkedPaths.value.includes(data.path)) {
+    checkedPaths.value = [data.path]
+    treeRef.value?.setCheckedKeys(checkedPaths.value)
+  }
   if (data.kind === 'directory') {
     project.setAssetFolderFilter(data.path)
   }
 }
 
 function onPanelContextMenu(event: MouseEvent) {
-  // 空白处右键：针对项目根
   const target = event.target as HTMLElement
   if (target.closest('.el-tree-node')) return
   event.preventDefault()
@@ -96,31 +198,31 @@ async function onNewFolder() {
 }
 
 async function onDelete() {
-  const entry = menu.entry
+  const paths = menuBatchPaths.value
   closeMenu()
-  if (!entry) {
+  if (!paths.length) {
     ElMessage.warning('请先选中要删除的文件或文件夹')
     return
   }
   try {
     await ElMessageBox.confirm(
-      `确定删除「${entry.path}」${entry.kind === 'directory' ? '及其全部内容' : ''}？此操作不可撤销。`,
+      paths.length > 1
+        ? `确定删除选中的 ${paths.length} 项（文件夹含全部内容）？此操作不可撤销。`
+        : `确定删除「${paths[0]}」${menu.entry?.kind === 'directory' ? '及其全部内容' : ''}？此操作不可撤销。`,
       '删除',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
     )
-    // 若删除的是当前打开的 UI 或其父目录，清空编辑器
     const opened = editor.currentFilePath
-    if (
-      opened &&
-      (opened === entry.path || opened.startsWith(`${entry.path}/`))
-    ) {
-      editor.currentUIData = null
-      editor.currentFileHandle = null
-      editor.currentFilePath = ''
-      editor.selectedId = null
+    for (const path of paths) {
+      if (opened && (opened === path || opened.startsWith(`${path}/`))) {
+        editor.currentUIData = null
+        editor.currentFileHandle = null
+        editor.currentFilePath = ''
+        editor.selectNode(null)
+      }
+      await project.deleteEntry(path)
     }
-    await project.deleteEntry(entry.path)
-    ElMessage.success(`已删除 ${entry.path}`)
+    ElMessage.success(paths.length > 1 ? `已删除 ${paths.length} 项` : `已删除 ${paths[0]}`)
   } catch (err) {
     if (err !== 'cancel') ElMessage.error(`删除失败：${String(err)}`)
   }
@@ -135,7 +237,12 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
     <h3
       class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-1.5 text-xs font-semibold tracking-wider text-zinc-400 select-none"
     >
-      项目文件
+      <span>
+        项目文件
+        <span v-if="checkedPaths.length > 1" class="ml-1 font-normal text-sky-400">
+          · {{ checkedPaths.length }}
+        </span>
+      </span>
       <button
         v-if="project.dirHandle"
         class="rounded px-1.5 py-0.5 text-[11px] font-normal text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
@@ -150,13 +257,20 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
     >
       <el-tree
         v-if="project.fileTree.length"
+        ref="treeRef"
         class="panel-tree"
         :data="project.fileTree"
         node-key="path"
+        show-checkbox
+        check-strictly
         :props="{ label: 'name', children: 'children' }"
         :expand-on-click-node="false"
         highlight-current
+        draggable
+        :allow-drop="allowDrop"
         @node-click="onClick"
+        @check="onCheck"
+        @node-drop="onNodeDrop"
         @node-contextmenu="onContextMenu"
       >
         <template #default="{ data }">
@@ -204,6 +318,9 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
           @click="onDelete"
         >
           删除
+          <span v-if="menuBatchPaths.length > 1" class="text-zinc-500">
+            ({{ menuBatchPaths.length }})
+          </span>
         </button>
       </div>
     </Teleport>

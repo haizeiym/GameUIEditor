@@ -714,7 +714,7 @@ function onStagePointerDown(e: FederatedPointerEvent) {
 
   const root = editor.currentUIData as UINode | null
   if (!root) {
-    editor.selectedId = null
+    editor.selectNode(null)
     beginPan(e.clientX, e.clientY)
     return
   }
@@ -730,7 +730,7 @@ function onStagePointerDown(e: FederatedPointerEvent) {
   if (isDbl) {
     const drilled = tryDrillOnDoubleClick(root, stage.x, stage.y)
     if (drilled) {
-      editor.selectedId = drilled._id
+      editor.selectNode(drilled._id)
       beginDrag(drilled._id, stage.x, stage.y)
       lastClickAt = 0
       lastClickX = stage.x
@@ -747,14 +747,14 @@ function onStagePointerDown(e: FederatedPointerEvent) {
 
   // 空白处或 Root（设计画布背景）：左键拖动平移整个画布视图
   if (!hit || hit._id === root._id) {
-    editor.selectedId = hit?._id ?? null
+    editor.selectNode(hit?._id ?? null)
     dragging = null
     beginPan(e.clientX, e.clientY)
     return
   }
 
   // 子节点：选中并拖拽改坐标
-  editor.selectedId = hit._id
+  editor.selectNode(hit._id)
   beginDrag(hit._id, stage.x, stage.y)
 }
 

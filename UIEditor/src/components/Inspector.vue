@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useEditorStore } from '../stores/editor'
 import { useProjectStore } from '../stores/project'
-import { canAddComponent, collectNodeRefOptions } from '../utils/node'
+import { canAddComponent, collectNodeRefOptions, topLevelSelectedIds } from '../utils/node'
 import {
   markdownPathFromDrop,
   resolveScriptMetaUuid,
@@ -59,13 +59,25 @@ function onRemoveComponent(type: string) {
 
 async function onDeleteNode() {
   if (!node.value || editor.isRootSelected) return
+  const root = editor.currentUIData
+  const ids =
+    root && editor.selectedIds.includes(node.value._id) && editor.selectedIds.length > 1
+      ? topLevelSelectedIds(root, editor.selectedIds, root._id)
+      : [node.value._id]
+  if (!ids.length) return
   try {
-    await ElMessageBox.confirm(`确定删除节点 "${node.value.name}" 及其全部子节点？`, '删除节点', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-    })
-    editor.removeNode(node.value._id)
+    await ElMessageBox.confirm(
+      ids.length > 1
+        ? `确定删除选中的 ${ids.length} 个节点及其全部子节点？`
+        : `确定删除节点 "${node.value.name}" 及其全部子节点？`,
+      '删除节点',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+    editor.removeNodes(ids)
   } catch {
     /* 用户取消 */
   }
@@ -362,7 +374,7 @@ function onPropCommit(type: string, propName: string) {
           class="mt-3 w-full!"
           @click="onDeleteNode"
         >
-          删除节点
+          删除节点{{ editor.selectedCount > 1 ? ` (${editor.selectedCount})` : '' }}
         </el-button>
       </div>
 

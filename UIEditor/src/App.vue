@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import TopBar from './components/TopBar.vue'
 import NodeTree from './components/NodeTree.vue'
 import FileTree from './components/FileTree.vue'
@@ -16,11 +17,24 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (isEditableTarget(e.target)) return
+  if (e.key === 'Delete') {
+    if (!editor.currentUIData || editor.isRootSelected) return
+    e.preventDefault()
+    const n = editor.selectedIds.filter((id) => id !== editor.rootId).length
+    if (!n) return
+    void ElMessageBox.confirm(
+      n > 1 ? `确定删除选中的 ${n} 个节点及其子节点？` : '确定删除该节点及其子节点？',
+      '删除节点',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+      .then(() => editor.removeNodes(editor.selectedIds))
+      .catch(() => {})
+    return
+  }
   if (!(e.ctrlKey || e.metaKey)) return
   const key = e.key.toLowerCase()
   if (key !== 'z' && key !== 'y') return
-  // 输入框内保留浏览器原生撤销
-  if (isEditableTarget(e.target)) return
   e.preventDefault()
   if (key === 'y' || (key === 'z' && e.shiftKey)) {
     void editor.redo()

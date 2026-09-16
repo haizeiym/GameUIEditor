@@ -37,3 +37,14 @@ body,
 .panel-tree.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
   background: rgba(64, 128, 255, 0.28);
 }
+/* Root 不参与多选：隐藏其 checkbox */
+.panel-tree--node.el-tree > .el-tree-node > .el-tree-node__content .el-checkbox {
+  visibility: hidden;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+}
+.panel-tree .el-checkbox {
+  margin-right: 6px;
+  height: 16px;
+}

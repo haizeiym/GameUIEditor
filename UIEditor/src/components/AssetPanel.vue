@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useProjectStore } from '../stores/project'
 import type { AssetEntry } from '../types'
 
 const project = useProjectStore()
+const preview = ref<AssetEntry | null>(null)
 
 const titleSuffix = computed(() =>
   project.assetFolderFilter ? ` · ${project.assetFolderFilter}` : ' · 全部',
 )
 
-/** 页面重新聚焦时轮询项目文件夹，模拟文件监听 */
 function onWindowFocus() {
   void project.refreshAssets()
 }
@@ -18,19 +18,31 @@ function onVisibilityChange() {
   if (document.visibilityState === 'visible') void project.refreshAssets()
 }
 
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && preview.value) {
+    preview.value = null
+  }
+}
+
 onMounted(() => {
   window.addEventListener('focus', onWindowFocus)
   document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('focus', onWindowFocus)
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('keydown', onKeydown)
 })
 
 function onDragStart(e: DragEvent, asset: AssetEntry) {
   e.dataTransfer?.setData('text/plain', asset.path)
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
+}
+
+function openPreview(asset: AssetEntry) {
+  preview.value = asset
 }
 </script>
 
@@ -75,8 +87,9 @@ function onDragStart(e: DragEvent, asset: AssetEntry) {
           :key="asset.path"
           class="flex w-20 shrink-0 cursor-grab flex-col items-center gap-1 rounded border border-zinc-800 bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
           draggable="true"
-          :title="asset.path"
+          :title="`${asset.path}（双击放大）`"
           @dragstart="onDragStart($event, asset)"
+          @dblclick.stop="openPreview(asset)"
         >
           <div
             class="flex h-14 w-full items-center justify-center overflow-hidden rounded bg-[repeating-conic-gradient(#27272a_0%_25%,#1c1c1f_0%_50%)] bg-size-[12px_12px]"
@@ -89,5 +102,28 @@ function onDragStart(e: DragEvent, asset: AssetEntry) {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="preview"
+        class="fixed inset-0 z-80 flex items-center justify-center bg-black/70 p-6"
+        @click.self="preview = null"
+      >
+        <div class="flex max-h-full max-w-full flex-col items-center gap-2">
+          <img
+            :src="preview.url"
+            :alt="preview.name"
+            class="max-h-[min(90vh,900px)] max-w-[min(90vw,1200px)] object-contain shadow-2xl"
+          />
+          <p class="max-w-[90vw] truncate text-xs text-zinc-300">{{ preview.path }}</p>
+          <button
+            class="rounded bg-zinc-800 px-3 py-1 text-xs text-zinc-200 hover:bg-zinc-700"
+            @click="preview = null"
+          >
+            关闭（Esc）
+          </button>
+        </div>
+      </div>
+    </Teleport>
   </section>
 </template>

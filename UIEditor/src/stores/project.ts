@@ -6,8 +6,11 @@ import {
   collectImages,
   getDirectoryHandleByPath,
   getFileHandleByPath,
+  moveEntryByPath,
   readTextFile,
+  remapMovedPath,
   removeEntryByPath,
+  topLevelEntryPaths,
   writeBinaryFile,
   writeTextFile,
 } from '../utils/fs'
@@ -260,6 +263,37 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
+   * 把若干文件/文件夹移到目标目录（磁盘复制后删源）。
+   * 返回 { from, to }；名称冲突或移入自身/子孙则抛错。
+   */
+  async function moveEntries(
+    srcPaths: string[],
+    destDirPath: string,
+  ): Promise<{ from: string; to: string }[]> {
+    if (!dirHandle.value) throw new Error('尚未打开项目')
+    const top = topLevelEntryPaths(srcPaths)
+    const moved: { from: string; to: string }[] = []
+    for (const src of top) {
+      if (src === destDirPath || (destDirPath && destDirPath.startsWith(`${src}/`))) {
+        throw new Error(`不能将「${src}」移动到自身或子目录`)
+      }
+      const name = src.split('/').pop()
+      if (!name) continue
+      const dest = destDirPath ? `${destDirPath}/${name}` : name
+      if (dest === src) continue
+      await moveEntryByPath(dirHandle.value, src, dest)
+      moved.push({ from: src, to: dest })
+    }
+    if (assetFolderFilter.value) {
+      let next = assetFolderFilter.value
+      for (const { from, to } of moved) next = remapMovedPath(next, from, to)
+      assetFolderFilter.value = next
+    }
+    await Promise.all([refreshFileTree(), refreshAssets(true)])
+    return moved
+  }
+
+  /**
    * 导入 PSD：解析图层为 PNG 写入 {A}/UI/，并生成 {A}/{A}.json UI 界面。
    * 返回创建的 JSON 文件句柄与路径，供编辑器直接打开。
    */
@@ -359,6 +393,7 @@ export const useProjectStore = defineStore('project', () => {
     createProjectFile,
     createFolder,
     deleteEntry,
+    moveEntries,
     importPsd,
     setAssetFolderFilter,
     clearAssetFolderFilter,

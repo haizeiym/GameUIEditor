@@ -130,6 +130,42 @@ export function findParentById(root: UINode | null, id: string | null): UINode |
   return null
 }
 
+/** nodeId 是否为 ancestorId 子树内的严格后代（不含自身） */
+export function isStrictDescendant(root: UINode, ancestorId: string, nodeId: string): boolean {
+  if (ancestorId === nodeId) return false
+  const anc = findNodeById(root, ancestorId)
+  if (!anc) return false
+  return findNodeById(anc, nodeId) !== null
+}
+
+/**
+ * 多选集合里只保留「顶层」：去掉 Root、以及祖先也在集合中的 id（子随父移动/删除）。
+ * 顺序为树前序。
+ */
+export function topLevelSelectedIds(root: UINode, ids: string[], rootId: string): string[] {
+  const set = new Set(ids.filter((id) => id && id !== rootId))
+  if (!set.size) return []
+  const out: string[] = []
+  const walk = (n: UINode) => {
+    if (set.has(n._id)) {
+      out.push(n._id)
+      return
+    }
+    n.children.forEach(walk)
+  }
+  walk(root)
+  return out
+}
+
+export function detachChild(root: UINode, id: string): UINode | null {
+  const parent = findParentById(root, id)
+  if (!parent) return null
+  const index = parent.children.findIndex((c) => c._id === id)
+  if (index < 0) return null
+  const [node] = parent.children.splice(index, 1)
+  return node ?? null
+}
+
 /** 深拷贝节点并为整棵子树重新生成 _id（用于复制节点） */
 export function cloneWithNewIds(node: UINode): UINode {
   const copy: UINode = JSON.parse(JSON.stringify(node))

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import type { ElTree } from 'element-plus'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { UINode } from '../types'
 import { useEditorStore } from '../stores/editor'
 import { collectNodeIds, pruneExpandedKeys } from '../utils/nodeTreeExpand'
+import { isStrictDescendant, topLevelSelectedIds } from '../utils/node'
 
 const editor = useEditorStore()
 const treeRef = ref<InstanceType<typeof ElTree>>()
+let syncingChecks = false
 
 const treeData = computed<UINode[]>(() => (editor.currentUIData ? [editor.currentUIData] : []))
 
@@ -47,7 +50,6 @@ function onNodeCollapse(data: UINode) {
   expandedKeys.value = expandedKeys.value.filter((k) => k !== data._id)
 }
 
-// store 选中态 → 树高亮；第二参 false = 不自动展开父链
 watch(
   () => [editor.selectedId, editor.currentUIData] as const,
   async () => {
@@ -57,33 +59,73 @@ watch(
   { immediate: true },
 )
 
-function onNodeClick(data: UINode) {
-  editor.selectedId = data._id
+watch(
+  () => editor.selectedIds.slice(),
+  async (ids) => {
+    await nextTick()
+    if (!treeRef.value) return
+    syncingChecks = true
+    treeRef.value.setCheckedKeys(ids.filter((id) => id !== editor.rootId))
+    syncingChecks = false
+  },
+  { immediate: true },
+)
+
+function onNodeClick(data: UINode, _node: Node, ev: MouseEvent) {
+  editor.selectNode(data._id, ev.ctrlKey || ev.metaKey)
 }
 
-// ---------- 拖拽约束：根节点不可拖动，也不可有同级 ----------
+function onCheck(_data: UINode, info: { checkedKeys: string[] }) {
+  if (syncingChecks) return
+  editor.setSelectedIds(info.checkedKeys)
+}
 
 function allowDrag(node: Node): boolean {
   return (node.data as UINode)._id !== editor.rootId
 }
 
-function allowDrop(_dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'next'): boolean {
-  if ((dropNode.data as UINode)._id === editor.rootId) return type === 'inner'
+function movingIds(dragging: Node): string[] {
+  const root = editor.currentUIData
+  if (!root) return []
+  const dragId = (dragging.data as UINode)._id
+  const raw = editor.selectedIds.includes(dragId)
+    ? editor.selectedIds
+    : [dragId]
+  return topLevelSelectedIds(root, raw, root._id)
+}
+
+function allowDrop(dragging: Node, dropNode: Node, type: 'prev' | 'inner' | 'next'): boolean {
+  const drop = dropNode.data as UINode
+  if (drop._id === editor.rootId) return type === 'inner'
+  const root = editor.currentUIData
+  if (!root) return false
+  for (const id of movingIds(dragging)) {
+    if (drop._id === id || isStrictDescendant(root, id, drop._id)) return false
+  }
   return true
 }
 
-function onNodeDrop() {
-  editor.afterTreeDrop()
+function onNodeDrop(dragging: Node) {
+  editor.afterMultiTreeDrop((dragging.data as UINode)._id)
 }
-
-// ---------- 右键菜单 ----------
 
 const menu = reactive({ visible: false, x: 0, y: 0, nodeId: '' })
 const menuIsRoot = computed(() => menu.nodeId === editor.rootId)
+const menuBatchIds = computed(() => {
+  const root = editor.currentUIData
+  if (!root) return [] as string[]
+  const raw =
+    editor.selectedIds.includes(menu.nodeId) && editor.selectedIds.length > 1
+      ? editor.selectedIds
+      : [menu.nodeId]
+  return topLevelSelectedIds(root, raw, root._id)
+})
+const menuBatchCount = computed(() => menuBatchIds.value.length)
 
 function onContextMenu(event: MouseEvent, data: UINode) {
   event.preventDefault()
-  editor.selectedId = data._id
+  if (!editor.selectedIds.includes(data._id)) editor.selectNode(data._id)
+  else editor.selectedId = data._id
   menu.nodeId = data._id
   menu.x = event.clientX
   menu.y = event.clientY
@@ -100,13 +142,30 @@ function menuAddChild() {
 }
 
 function menuDuplicate() {
-  if (!menuIsRoot.value) editor.duplicateNode(menu.nodeId)
+  if (!menuBatchCount.value) {
+    closeMenu()
+    return
+  }
+  editor.duplicateNodes(menuBatchIds.value)
   closeMenu()
 }
 
-function menuRemove() {
-  if (!menuIsRoot.value) editor.removeNode(menu.nodeId)
+async function menuRemove() {
+  const ids = menuBatchIds.value
   closeMenu()
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(
+      ids.length > 1
+        ? `确定删除选中的 ${ids.length} 个节点及其子节点？`
+        : '确定删除该节点及其子节点？',
+      '删除节点',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+    editor.removeNodes(ids)
+  } catch {
+    /* 取消 */
+  }
 }
 
 onMounted(() => window.addEventListener('click', closeMenu))
@@ -117,14 +176,19 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
   <section class="flex flex-col">
     <h3 class="shrink-0 border-b border-zinc-800 px-3 py-1.5 text-xs font-semibold tracking-wider text-zinc-400 select-none">
       节点树
+      <span v-if="editor.selectedCount > 1" class="ml-1 font-normal text-sky-400">
+        · {{ editor.selectedCount }}
+      </span>
     </h3>
     <div class="min-h-0 flex-1 overflow-auto p-1">
       <el-tree
         v-if="treeData.length"
         ref="treeRef"
-        class="panel-tree"
+        class="panel-tree panel-tree--node"
         :data="treeData"
         node-key="_id"
+        show-checkbox
+        check-strictly
         :default-expanded-keys="expandedKeys"
         :auto-expand-parent="false"
         highlight-current
@@ -133,6 +197,7 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         :allow-drag="allowDrag"
         :allow-drop="allowDrop"
         @node-click="onNodeClick"
+        @check="onCheck"
         @node-drop="onNodeDrop"
         @node-expand="onNodeExpand"
         @node-collapse="onNodeCollapse"
@@ -164,17 +229,19 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         </button>
         <button
           class="block w-full px-4 py-1.5 text-left hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-600"
-          :disabled="menuIsRoot"
+          :disabled="!menuBatchCount"
           @click="menuDuplicate"
         >
           复制节点
+          <span v-if="menuBatchCount > 1" class="text-zinc-500"> ({{ menuBatchCount }})</span>
         </button>
         <button
           class="block w-full px-4 py-1.5 text-left text-red-400 hover:bg-zinc-700 disabled:cursor-not-allowed disabled:text-zinc-600"
-          :disabled="menuIsRoot"
+          :disabled="!menuBatchCount"
           @click="menuRemove"
         >
           删除节点
+          <span v-if="menuBatchCount > 1" class="text-zinc-500"> ({{ menuBatchCount }})</span>
         </button>
       </div>
     </Teleport>
