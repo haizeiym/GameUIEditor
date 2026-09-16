@@ -183,7 +183,7 @@ onBeforeUnmount(() => {
 
       <!-- 中间：画布 + 底部资源管理器 -->
       <main class="flex min-w-0 flex-1 flex-col">
-        <StageCanvas class="min-h-0 flex-1" />
+        <StageCanvas class="min-h-0 min-w-0 flex-1" />
         <div class="relative shrink-0 border-t border-zinc-800" :style="{ height: `${bottomH}px` }">
           <div
             role="separator"

@@ -324,6 +324,17 @@ function centerWorldView(force = false) {
   userAdjustedView = false
 }
 
+/** 按包裹层实际 CSS 尺寸同步 WebGL 缓冲；canvas 脱离文档流，避免撑住 flex min-width */
+function syncRendererToWrap() {
+  if (!app || !wrapEl.value) return
+  const w = Math.max(1, Math.round(wrapEl.value.clientWidth))
+  const h = Math.max(1, Math.round(wrapEl.value.clientHeight))
+  if (Math.round(app.screen.width) !== w || Math.round(app.screen.height) !== h) {
+    app.renderer.resize(w, h)
+  }
+  app.stage.hitArea = new Rectangle(0, 0, app.screen.width, app.screen.height)
+}
+
 function rebuild() {
   if (!app || !world || dragging || resizing) return
   for (const child of world.children.slice()) {
@@ -857,6 +868,11 @@ onMounted(async () => {
   }
   app = application
   wrapEl.value.appendChild(app.canvas)
+  app.canvas.style.display = 'block'
+  app.canvas.style.position = 'absolute'
+  app.canvas.style.left = '0'
+  app.canvas.style.top = '0'
+  syncRendererToWrap()
 
   world = new Container()
   world.sortableChildren = true
@@ -898,8 +914,12 @@ onMounted(async () => {
   // 视口尺寸变化时，把设计画布与十字准星重新置于正中央
   resizeObserver = new ResizeObserver(() => {
     if (!app) return
-    // resizeTo 已处理画布缓冲；下一帧用新的 screen 尺寸回中
-    requestAnimationFrame(() => centerWorldView(false))
+    syncRendererToWrap()
+    requestAnimationFrame(() => {
+      if (!app) return
+      syncRendererToWrap()
+      centerWorldView(false)
+    })
   })
   resizeObserver.observe(wrapEl.value)
 
@@ -954,7 +974,7 @@ watch(
 </script>
 
 <template>
-  <div ref="wrapEl" class="relative overflow-hidden bg-[#161618]">
+  <div ref="wrapEl" class="relative min-h-0 min-w-0 w-full overflow-hidden bg-[#161618]">
     <div
       class="pointer-events-none absolute top-2 left-3 z-10 text-[11px] text-zinc-600 select-none"
     >
