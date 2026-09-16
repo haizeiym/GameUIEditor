@@ -28,7 +28,11 @@ import { sanitizeFsName } from '../utils/psd'
 import { toExportBaseName } from '../utils/imageFileName'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
 import { latestToFile } from '../utils/recentToFile'
-import { latestTemplatePath, latestTemplateType } from '../utils/recentTemplateTypes'
+import {
+  latestTemplateAlias,
+  latestTemplatePath,
+  latestTemplateType,
+} from '../utils/recentTemplateTypes'
 import { isAbsoluteFsPath, pickLocalMarkdownText, readLocalFsText } from '../utils/scriptMeta'
 import { getCachedTemplateMd, rememberTemplateMd } from '../utils/templateMdCache'
 import { useProjectStore } from './project'
@@ -533,6 +537,10 @@ export const useEditorStore = defineStore('editor', () => {
       if (latestType) data.templateType = latestType
       const latestPath = latestTemplatePath()
       if (latestPath) data.templatePath = latestPath
+      if (!isRoot) {
+        const latestAlias = latestTemplateAlias()
+        if (latestAlias) data.templateAlias = latestAlias
+      }
     }
     if (type === 'ImgToFileComponent') {
       const latest = latestToFile()

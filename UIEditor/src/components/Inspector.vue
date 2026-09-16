@@ -18,8 +18,10 @@ import {
 } from '../utils/recentScriptBinds'
 import { listRecentToFile, rememberToFile } from '../utils/recentToFile'
 import {
+  listRecentTemplateAliases,
   listRecentTemplatePaths,
   listRecentTemplateTypes,
+  rememberTemplateAlias,
   rememberTemplatePath,
   rememberTemplateType,
 } from '../utils/recentTemplateTypes'
@@ -210,6 +212,9 @@ function recentMenu(type: string, propName: string): { command: string; label: s
   if (propName === 'templateType') {
     return listRecentTemplateTypes().map((item) => ({ command: item, label: item }))
   }
+  if (propName === 'templateAlias') {
+    return listRecentTemplateAliases().map((item) => ({ command: item, label: item }))
+  }
   if (propName === 'templatePath') {
     return listRecentTemplatePaths().map((item) => ({
       command: item,
@@ -233,6 +238,15 @@ function onRecentCommand(type: string, propName: string, command: string) {
     if (!comp) return
     comp.templateType = command
     rememberTemplateType(command)
+    editor.commit()
+    return
+  }
+  if (propName === 'templateAlias') {
+    if (!node.value) return
+    const comp = node.value.components[type]
+    if (!comp) return
+    comp.templateAlias = command
+    rememberTemplateAlias(command)
     editor.commit()
     return
   }
@@ -276,6 +290,10 @@ function onPropCommit(type: string, propName: string) {
     const raw = node.value.components[type]?.templateType
     if (typeof raw === 'string') rememberTemplateType(raw)
   }
+  if (propName === 'templateAlias' && node.value) {
+    const raw = node.value.components[type]?.templateAlias
+    if (typeof raw === 'string') rememberTemplateAlias(raw)
+  }
   if (propName === 'templatePath' && node.value) {
     const raw = node.value.components[type]?.templatePath
     if (typeof raw === 'string' && raw.trim()) rememberTemplatePath(raw)
@@ -285,6 +303,13 @@ function onPropCommit(type: string, propName: string) {
     if (typeof raw === 'string' && raw.trim()) rememberToFile(raw)
   }
   editor.commit()
+}
+
+function shouldShowProp(type: string, propName: string): boolean {
+  if (type === 'TemplateComponent' && propName === 'templateAlias' && editor.isRootSelected) {
+    return false
+  }
+  return true
 }
 
 function selectedImagePaths(): string[] {
@@ -442,6 +467,7 @@ function addSelectedImages(type: string) {
               <template v-if="project.componentDefs[type]">
                 <div
                   v-for="(propDef, propName) in project.componentDefs[type].properties"
+                  v-show="shouldShowProp(type, String(propName))"
                   :key="propName"
                   class="flex gap-2"
                   :class="propDef.type === 'array' ? 'items-start' : 'items-center'"
@@ -494,7 +520,12 @@ function addSelectedImages(type: string) {
                   </div>
                 </div>
                 <p v-if="type === 'TemplateComponent'" class="text-[11px] leading-snug text-zinc-500">
-                  仅 Root 生效。无路径：空/「1」→ codePreview/cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md（本机 / 项目相对 / https://…/*.md），templateType 原样对应标题（「xxx_aaa」→ ### xxx_aaa）。远程地址导出前下载并走进度框。导出时 FileName 换成包名。
+                  <template v-if="editor.isRootSelected">
+                    Root 包脚本：无路径时空/「1」→ cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md，templateType 原样对应标题。FileName 换成包名。别名对 Root 无效故隐藏。
+                  </template>
+                  <template v-else>
+                    子节点额外脚本：type 与 alias 都空则不导出。未填 alias 时文件名为 type；填了则为 alias。同 type 无 alias 或 type+alias 都相同只留一份；同 type 不同 alias 各一份。远程地址导出前下载。
+                  </template>
                 </p>
               </template>
               <p v-else class="text-xs text-zinc-500">

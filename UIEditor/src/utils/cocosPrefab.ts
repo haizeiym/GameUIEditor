@@ -20,6 +20,7 @@ import { readImagePathList } from './imagePaths'
 import {
   buildPrefabScriptSource,
   buildTypescriptMeta,
+  collectChildTemplateJobs,
   isMarkdownTemplatePath,
   isRemoteTemplateUrl,
   readRootTemplatePath,
@@ -656,9 +657,9 @@ export function buildPrefabObjects(
   componentDefs?: ComponentDefs,
   framePathToExportName: Map<string, string> = new Map(),
   framePathToImageSize: Map<string, { width: number; height: number }> = new Map(),
+  extraScriptByNodeId: Map<string, string> = new Map(),
 ): PrefabObject[] {
   const objects: PrefabObject[] = []
-  const scriptType = scriptUuid ? compressUuid(scriptUuid) : null
   const defs = componentDefs ?? {}
   /** UINode._id → Prefab 中 cc.Node 的 __id__ */
   const uiIdToPrefabId = new Map<string, number>()
@@ -1006,22 +1007,27 @@ export function buildPrefabObjects(
     }
     pushBoundScript('LangLabelComponent')
 
-    // 根节点挂载配套 .ts 脚本（__type__ = 压缩后的 typescript UUID）
-    if (parentId === null && scriptType) {
-      const scriptId = objects.length
+    const attachTs = (uuid: string) => {
+      const compressed = compressUuid(uuid)
+      const sid = objects.length
       objects.push({
-        __type__: scriptType,
+        __type__: compressed,
         _name: '',
         _objFlags: 0,
         __editorExtras__: {},
         node: { __id__: nodeId },
         _enabled: true,
-        __prefab: { __id__: scriptId + 1 },
+        __prefab: { __id__: sid + 1 },
         _id: '',
       })
       objects.push({ __type__: 'cc.CompPrefabInfo', fileId: randomFileId() })
-      compIds.push(scriptId)
+      compIds.push(sid)
     }
+
+    // 根节点挂载配套 .ts 脚本（__type__ = 压缩后的 typescript UUID）
+    if (parentId === null && scriptUuid) attachTs(scriptUuid)
+    const extraUuid = extraScriptByNodeId.get(node._id)
+    if (extraUuid && !(parentId === null && extraUuid === scriptUuid)) attachTs(extraUuid)
 
     const prefabInfoId = objects.length
     objects.push({
@@ -1088,52 +1094,83 @@ export async function exportCocosPrefabCore(
   const usedUuids = new Set<string>()
   /** 与 `.ts.meta` / Prefab 根脚本组件共用 */
   const scriptUuid = stableUuid(`cocos-ts:${baseName}`)
+  const childJobs = collectChildTemplateJobs(root)
+  const extraJobs = childJobs.filter((j) => j.fileStem !== baseName)
+  const extraScriptByNodeId = new Map<string, string>()
+  for (const job of childJobs) {
+    const uuid =
+      job.fileStem === baseName ? scriptUuid : stableUuid(`cocos-ts:${baseName}:${job.fileStem}`)
+    for (const id of job.nodeIds) extraScriptByNodeId.set(id, uuid)
+  }
+
+  const templatePaths: string[] = []
+  const seenTemplatePath = new Set<string>()
+  const pushTemplatePath = (p: string) => {
+    if (!p || seenTemplatePath.has(p)) return
+    seenTemplatePath.add(p)
+    templatePaths.push(p)
+  }
+  pushTemplatePath(readRootTemplatePath(root))
+  for (const job of childJobs) pushTemplatePath(job.templatePath)
+  for (const p of templatePaths) {
+    if (!isMarkdownTemplatePath(p)) {
+      throw new Error(`templatePath 必须指向 .md 文件或 https://…/*.md：${p}`)
+    }
+  }
 
   const readN = uniqueSources.length
   const writeN = jobs.length
-  const templatePath = readRootTemplatePath(root)
-  const remoteTemplate = Boolean(templatePath) && isRemoteTemplateUrl(templatePath)
-  const downloadCap = remoteTemplate ? 100 : 0
-  // （可选下载 100 格）+ prepare + 读图 + 写目录 + 写图 + prefab + script + done
-  const totalSteps = downloadCap + 1 + readN + 1 + writeN + 1 + 1 + 1
+  const remotes = templatePaths.filter((p) => isRemoteTemplateUrl(p))
+  const downloadCap = remotes.length ? 100 : 0
+  // （可选下载 100 格）+ prepare + 读图 + 写目录 + 写图 + prefab + pack script + extra scripts + done
+  const totalSteps = downloadCap + 1 + readN + 1 + writeN + 1 + 1 + extraJobs.length + 1
   const report = createExportProgressReporter('cocos', totalSteps, options.onProgress)
 
-  let sourceMd: string | undefined
-  if (templatePath) {
-    if (!isMarkdownTemplatePath(templatePath)) {
-      throw new Error(`templatePath 必须指向 .md 文件或 https://…/*.md：${templatePath}`)
-    }
-    if (remoteTemplate) {
-      await report.set(1, 'download-template', `开始下载模板：${templatePath}`)
-      sourceMd = await downloadTextWithProgress(templatePath, async (loaded, totalBytes) => {
+  const mdByPath = new Map<string, string>()
+  if (remotes.length) {
+    for (let i = 0; i < remotes.length; i++) {
+      const url = remotes[i]!
+      const sliceStart = Math.floor((i * downloadCap) / remotes.length)
+      const sliceEnd = Math.floor(((i + 1) * downloadCap) / remotes.length)
+      const span = Math.max(1, sliceEnd - sliceStart)
+      await report.set(
+        Math.max(1, sliceStart + 1),
+        'download-template',
+        `开始下载模板：${url}`,
+      )
+      const text = await downloadTextWithProgress(url, async (loaded, totalBytes) => {
         const fraction =
           totalBytes && totalBytes > 0
             ? loaded / totalBytes
             : Math.min(0.99, loaded / (512 * 1024))
-        const cur = Math.max(1, Math.min(downloadCap - 1, Math.round(fraction * downloadCap)))
+        const cur = Math.max(
+          sliceStart + 1,
+          Math.min(Math.max(sliceStart + 1, sliceEnd - 1), sliceStart + Math.round(fraction * span)),
+        )
         const sizePart =
           totalBytes && totalBytes > 0
             ? `${formatByteSize(loaded)} / ${formatByteSize(totalBytes)}`
             : formatByteSize(loaded)
         const pct = Math.round(fraction * 100)
-        await report.set(
-          cur,
-          'download-template',
-          `下载模板 ${pct}%（${sizePart}）`,
-        )
+        await report.set(cur, 'download-template', `下载模板 ${pct}%（${sizePart}）`)
       })
-      await report.set(downloadCap, 'download-template', '模板下载完成')
-    } else {
-      if (!options.readText) {
-        throw new Error(`无法读取模板文件（缺少 readText）：${templatePath}`)
-      }
-      const text = await options.readText(templatePath)
-      if (text == null || !text.length) {
-        throw new Error(`读不到模板文件：${templatePath}`)
-      }
-      sourceMd = text
+      mdByPath.set(url, text)
     }
+    await report.set(downloadCap, 'download-template', '模板下载完成')
   }
+  for (const p of templatePaths) {
+    if (isRemoteTemplateUrl(p)) continue
+    if (!options.readText) {
+      throw new Error(`无法读取模板文件（缺少 readText）：${p}`)
+    }
+    const text = await options.readText(p)
+    if (text == null || !text.length) {
+      throw new Error(`读不到模板文件：${p}`)
+    }
+    mdByPath.set(p, text)
+  }
+  const rootTemplatePath = readRootTemplatePath(root)
+  const sourceMd = rootTemplatePath ? mdByPath.get(rootTemplatePath) : undefined
 
   await report('prepare', `准备导出「${baseName}」…`)
 
@@ -1216,6 +1253,7 @@ export async function exportCocosPrefabCore(
     options.componentDefs,
     pathToExportName,
     pathToImageSize,
+    extraScriptByNodeId,
   )
   await fs.writeText(
     `${baseName}/${baseName}.prefab`,
@@ -1238,6 +1276,22 @@ export async function exportCocosPrefabCore(
     `${baseName}/${baseName}.ts.meta`,
     `${JSON.stringify(buildTypescriptMeta(scriptUuid), null, 2)}\n`,
   )
+
+  for (const job of extraJobs) {
+    await report('write-script', `写出子模板脚本：${job.fileStem}.ts`)
+    const extraSource = buildPrefabScriptSource(job.fileStem, {
+      templateType: job.templateType,
+      sourceMd: job.templatePath ? mdByPath.get(job.templatePath) : undefined,
+      markdownByStem: options.codePreviewMarkdown,
+      templateMd: options.scriptTemplateMd,
+    })
+    const extraUuid = stableUuid(`cocos-ts:${baseName}:${job.fileStem}`)
+    await fs.writeText(`${baseName}/${job.fileStem}.ts`, extraSource)
+    await fs.writeText(
+      `${baseName}/${job.fileStem}.ts.meta`,
+      `${JSON.stringify(buildTypescriptMeta(extraUuid), null, 2)}\n`,
+    )
+  }
 
   await report('done', '导出完成')
 

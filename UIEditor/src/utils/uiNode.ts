@@ -46,15 +46,14 @@ export function createDefaultUIData(width = 1366, height = 768): UINode {
 /**
  * 判断节点是否还能添加指定组件。
  * 规则：同名组件只能一个；若定义了 componentType，则同类型也只能一个。
- * TemplateComponent 仅 Root；ImgToFileComponent 必须已有 SpriteComponent。
+ * ImgToFileComponent 必须已有 SpriteComponent。
  */
 export function canAddComponent(
   node: UINode,
   type: string,
   defs: ComponentDefs,
-  isRoot = false,
+  _isRoot = false,
 ): boolean {
-  if (type === 'TemplateComponent' && !isRoot) return false
   if (type === 'ImgToFileComponent' && !node.components['SpriteComponent']) return false
   if (node.components[type]) return false
   const def = defs[type]

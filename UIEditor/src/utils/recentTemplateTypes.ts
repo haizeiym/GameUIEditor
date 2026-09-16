@@ -1,10 +1,11 @@
 /**
- * Root TemplateComponent 的 templateType / templatePath 最近 10 条（仅网页）。
+ * TemplateComponent 的 templateType / templateAlias / templatePath 最近 10 条（仅网页）。
  */
 
 const MAX = 10
 
 export const RECENT_TEMPLATE_TYPES_LS_KEY = 'uieditor.recent-template-types'
+export const RECENT_TEMPLATE_ALIASES_LS_KEY = 'uieditor.recent-template-aliases'
 export const RECENT_TEMPLATE_PATHS_LS_KEY = 'uieditor.recent-template-paths'
 
 function canUseLocalStorage(): boolean {
@@ -77,4 +78,16 @@ export function latestTemplatePath(): string | null {
 
 export function rememberTemplatePath(raw: string): string[] {
   return remember(RECENT_TEMPLATE_PATHS_LS_KEY, raw)
+}
+
+export function listRecentTemplateAliases(): string[] {
+  return listRecent(RECENT_TEMPLATE_ALIASES_LS_KEY)
+}
+
+export function latestTemplateAlias(): string | null {
+  return listRecentTemplateAliases()[0] ?? null
+}
+
+export function rememberTemplateAlias(raw: string): string[] {
+  return remember(RECENT_TEMPLATE_ALIASES_LS_KEY, raw)
 }

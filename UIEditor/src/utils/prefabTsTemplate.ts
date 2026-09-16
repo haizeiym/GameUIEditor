@@ -85,13 +85,61 @@ export function parseTemplateType(raw: unknown): PrefabTemplateRef {
 }
 
 export function readRootTemplateType(root: UINode): string {
-  const raw = root.components['TemplateComponent']?.templateType
-  return typeof raw === 'string' ? raw.trim() : ''
+  return readTemplateString(root, 'templateType')
 }
 
 export function readRootTemplatePath(root: UINode): string {
-  const raw = root.components['TemplateComponent']?.templatePath
-  return typeof raw === 'string' ? raw.trim().replace(/\\/g, '/') : ''
+  return readTemplateString(root, 'templatePath')
+}
+
+function readTemplateString(node: UINode, key: string): string {
+  const raw = node.components['TemplateComponent']?.[key]
+  if (typeof raw !== 'string') return ''
+  const s = raw.trim()
+  return key === 'templatePath' ? s.replace(/\\/g, '/') : s
+}
+
+export interface ChildTemplateJob {
+  /** `{pack}/{fileStem}.ts` 的文件名（无扩展名） */
+  fileStem: string
+  templateType: string
+  templatePath: string
+  nodeIds: string[]
+}
+
+/**
+ * 子节点 TemplateComponent：type 与 alias 都空则跳过。
+ * 导出名 = alias（已填）否则 type，再经 toExportBaseName；同名只留先出现的一份。
+ */
+export function collectChildTemplateJobs(root: UINode): ChildTemplateJob[] {
+  const byStem = new Map<string, ChildTemplateJob>()
+  const visit = (n: UINode) => {
+    const type = readTemplateString(n, 'templateType')
+    const alias = readTemplateString(n, 'templateAlias')
+    if (type || alias) {
+      const fileStem = toExportBaseName(alias || type)
+      const templatePath = readTemplateString(n, 'templatePath')
+      const existing = byStem.get(fileStem)
+      if (!existing) {
+        byStem.set(fileStem, {
+          fileStem,
+          templateType: type,
+          templatePath,
+          nodeIds: [n._id],
+        })
+      } else {
+        if (existing.templateType !== type || existing.templatePath !== templatePath) {
+          console.warn(
+            `[prefabTs] 子模板「${fileStem}」与先前节点 type/path 不同，已复用先出现的脚本`,
+          )
+        }
+        existing.nodeIds.push(n._id)
+      }
+    }
+    for (const child of n.children) visit(child)
+  }
+  for (const child of root.children) visit(child)
+  return [...byStem.values()]
 }
 
 export function isRemoteTemplateUrl(raw: string): boolean {

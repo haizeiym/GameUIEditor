@@ -216,7 +216,7 @@ async function cmdExportPrefab(flags: Flags): Promise<void> {
   }
   await mkdir(path.join(packDir, 'UI'), { recursive: true })
 
-  // 读仓库 codePreview/*.md（Root.TemplateComponent.templateType 选块）
+  // 读仓库 codePreview/*.md（TemplateComponent.templateType 选块）
   const codePreviewMarkdown: Record<string, string> = {}
   const previewDirs = [
     path.join(process.cwd(), 'codePreview'),
