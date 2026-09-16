@@ -251,6 +251,12 @@ trim；若结果为空 → "untitled"
 - 多标签页：其它标签写入同一键时，当前页应同步布局（`storage` 事件）。
 
 ## 3.2 左侧
+- **栏宽（必须）**：拖左栏与画布之间的分隔条（`col-resize`）左右改宽度。默认 **256px**；夹在 **180–480**。与右栏合计须留给中间画布 ≥ **320px**（窗口变窄时先压缩左栏再压右栏）。
+- **面板尺寸持久化（必须，仅网页；CLI 不读写）**：
+  - 键：`localStorage` `uieditor.panel-layout`。
+  - 值：`{ "left": 左宽, "right": 右宽, "bottom": 底栏高 }`，单位 px 整数。
+  - 写入：分隔条**松手**（以及窗口 resize 夹紧后）。读失败、无键、隐私模式禁止存储 → 默认 256 / 320 / 176，并 `console.warn`。
+  - 多标签页：其它标签写入同一键时，当前页同步（`storage` 事件）。
 - **上：节点树**（`el-tree` + `draggable`）
   - 拖拽改父子/同级顺序，实时写回数据源；结束后按新顺序重排同级 `zIndex`。
   - 右键：新建子节点、复制、删除（Root 禁用删除/非法拖拽）。
@@ -284,6 +290,7 @@ trim；若结果为空 → "untitled"
 - 同级绘制顺序 = `children` 顺序（后添加在上），**不要**按 `zIndex` 重排。
 
 ## 3.4 右侧 Inspector
+- **栏宽（必须）**：拖右栏与画布之间的分隔条左右改宽度。默认 **320px**；夹在 **240–560**；与左栏一起保证中间 ≥ 320。持久化见 §3.2。
 - 基础字段：`name`, `active`, `x`, `y`, `width`, `height`, `zIndex` +「删除节点」（Root 隐藏）。
 - 「添加组件」来自 `components.json`，受 §2.3 互斥与伴随组件规则约束。`TemplateComponent` 只出现在 Root 的添加列表。
 - `el-collapse`：标题左类型、右删组件。
@@ -297,6 +304,7 @@ trim；若结果为空 → "untitled"
 - **`toFile` 最近记录（网页）**：`ImgToFileComponent.toFile` 记住最近 **10** 条非空输入（`uieditor.recent-to-file`；同值置顶去重）。再次添加该组件时自动填最近一条；旁「最近」可点选。改属性提交时写入。仅网页；CLI 不记。
 
 ## 3.5 底部资源管理器
+- **栏高（必须）**：拖资源栏与画布之间的分隔条（`row-resize`）**上下改高度**（不是宽度）。默认 **176px**；夹在 **72–420**；画布剩余高度 ≥ **120**。持久化见 §3.2。
 - 仅显示项目内 `.png/.jpg/.webp`；选中文件夹时可过滤到该目录。
 - 【手动刷新】+ Window Focus 时轮询/重扫，图片增删后刷新列表。
 - **多选（必须）**：无勾选框。单击 = 只选该项；**Ctrl/⌘+单击** 切换加入集合；已选项边框高亮。拖到 `framePath` 写入被拖那一项的相对路径。拖到 `fileArray` 时：若拖的图在多选集合中则追加全部，否则只追加该项。
@@ -550,7 +558,7 @@ uieditor --help
 9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
 10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。图层 `test(test)` / `test（test）` → `test.png`；`测试（测试）` / `测试(测试)` → `cs.png` / 节点 `cs`。`测试(测试 Langi)` / `测试(测试 LangSpriteComponent)` 节点带 `LangSpriteComponent`+Sprite；`测试(测试 Btn)` / `测试(测试 ButtonComponent)` 节点带 `ButtonComponent`；`测试(测试 ToFile)` / `测试(测试 ImgToFileComponent)` 像素层带 Sprite+ImgToFile（组节点无 Sprite 则不挂 ToFile）。组节点仍为图层原名（可含括号），括号同样可标注组件。
 11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
-12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
+12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。拖左栏/右栏改宽度、拖底栏改高度，有上下限且画布仍可见；刷新后尺寸仍在。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。无 Sprite 时添加列表没有 `ImgToFileComponent`；有 Sprite 才可加，去掉 Sprite 时 ImgToFile 一并删除。`toFile` 本机最近 10 条（刷新仍在、同值置顶）；再添加自动填最近一条，旁「最近」可点选。Inspector `fileArray` 可从文件树/资源管理器单选或多选拖入（去重追加），或「添加选中」/文件树右键「加入图片数组」；列表可删单项，「清除」一键清空。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，UUID 种子 `cocos-image:UI/zh:{framePath}`；`ImgToFile.toFile=img` 且有图 → `{pack}/UI/img/`，种子 `cocos-image:UI/img:{framePath}`；`fileArray` 内路径在 `toFile` 有效时同样进 `{pack}/UI/img/`（即使 Sprite 无图），缺图失败。该图与 `UI/img.meta` 的 `imported` 为 false；toFile 空时 Sprite 仍在 `{pack}/UI/` 且 **不打包** fileArray。Prefab `_spriteFrame` 绑本节点目录的 UUID。覆盖导出先删旧包。

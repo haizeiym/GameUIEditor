@@ -67,7 +67,7 @@ function openPreview(asset: AssetEntry) {
 </script>
 
 <template>
-  <section class="flex flex-col bg-zinc-900">
+  <section class="flex h-full min-h-0 flex-col bg-zinc-900">
     <h3
       class="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-1.5 text-xs font-semibold tracking-wider text-zinc-400 select-none"
     >
