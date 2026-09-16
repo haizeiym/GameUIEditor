@@ -102,6 +102,12 @@ function removeListItem(index: number) {
   emit('commit')
 }
 
+function clearList() {
+  if (!listValue.value.length) return
+  emit('update:modelValue', [])
+  emit('commit')
+}
+
 const placeholder = computed(() => {
   if (dropKind.value === 'image') {
     return props.def.type === 'array'
@@ -237,6 +243,17 @@ const nodeSelectOptions = computed(() => {
     @dragover.prevent
     @drop="onDrop"
   >
+    <div v-if="listValue.length" class="mb-0.5 flex items-center justify-between gap-1">
+      <span class="text-[11px] text-zinc-500">{{ listValue.length }} 项</span>
+      <button
+        type="button"
+        class="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-red-400"
+        title="清空列表"
+        @click.stop="clearList"
+      >
+        清除
+      </button>
+    </div>
     <p v-if="!listValue.length" class="px-0.5 py-1 text-[11px] text-zinc-500">
       {{ placeholder || '空数组' }}
     </p>
