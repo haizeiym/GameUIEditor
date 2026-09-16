@@ -202,7 +202,7 @@ interface UINode {
 去掉前导 .
 trim；若结果为空 → "untitled"
 ```
-界面名、目录名、无汉字的图片名用此函数。含汉字的 PNG/JPG **写盘名**见 §5.6。由 PNG/JPG 生成的**像素层节点 `name`** 与文件 stem 相同（§5.5）；组节点 / 项目内 JSON 文件名不改。Prefab 导出包名见 §6.1。
+界面名、目录名、无汉字的图片名用此函数。PNG/JPG **写盘名**（含去括号、汉字拼音首字母）见 §5.6。由 PNG/JPG 生成的**像素层节点 `name`** 与文件 stem 相同（§5.5）；组节点 / 项目内 JSON 文件名不改。Prefab 导出包名见 §6.1。
 
 ## 2.6 读写规范化
 - **读入**：补齐缺失基础字段；为整树生成运行时 `_id`；子节点缺 `zIndex` 时用其在父 `children` 中的下标。
@@ -337,18 +337,22 @@ y = top  + height/2 - docH/2
 - 导出 PNG；`SpriteComponent`：`framePath`、`color: "#FFFFFF"`、`sizeMode: "TRIMMED"`、`type: "SIMPLE"`。
 - `active = !layer.hidden`。
 - 同名 PNG：`name.png`、`name_1.png`…（大小写不敏感去重）。
-- **中文文件名**（见 §5.6）：含汉字则转拼音首字母后再写盘；`framePath` 用新文件名。
-- **节点名**：由该 PNG 生成的 Sprite 节点，`name` = 写盘文件去扩展名（与 `framePath` 末段 stem 一致，含碰撞后缀）。例：图层「背景」→ 文件 `bj.png`、节点 `bj`；「布局」撞名 → `bj_1.png` / 节点 `bj_1`。组节点仍用图层原名。
+- **写盘文件名**（见 §5.6）：先去掉括号及内容；含汉字再转拼音首字母；`framePath` 用新文件名。
+- **节点名**：由该 PNG 生成的 Sprite 节点，`name` = 写盘文件去扩展名（与 `framePath` 末段 stem 一致，含碰撞后缀）。例：图层「背景」→ 文件 `bj.png`、节点 `bj`；「布局」撞名 → `bj_1.png` / 节点 `bj_1`。组节点仍用图层原名（可含括号）。
 
-## 5.6 中文图片文件名（必须）
-导出 PNG/JPG（PSD 导入写盘、Prefab 打包复制）时，若**去掉扩展名后的文件名含汉字**（`[\u4e00-\u9fff]`）：
+## 5.6 图片写盘文件名（必须）
+导出 PNG/JPG（PSD 导入写盘、Prefab 打包复制）时，对**去掉扩展名后的 stem**按序处理：
 
-1. 用成熟拼音库 **`pinyin-pro`**：`pattern: 'first'`、`toneType: 'none'`、`nonZh: 'consecutive'`（非汉字原样保留）。
-2. 去空白后经 `sanitizeFsName`，再只保留 `[A-Za-z0-9._-]`，**全体小写**。空则 `img`。
-3. **尾部符号**：原名（去扩展名）**不含 `_`** 时，结果不得以 `_`、`.`、`-` 结尾（去掉拼音/替换产生的尾部符号）。原名本身含 `_` 则不因本条删掉结尾 `_`。碰撞后缀 `_1` 不受本条影响。
-4. 扩展名保持来源（PSD 像素层固定 `.png`；Prefab 跟原文件）。
-5. **首字母碰撞**（大小写不敏感）：`bj.png`、`bj_1.png`、`bj_2.png`…
-6. 写盘文件名与 JSON `SpriteComponent.framePath` 的末段必须是新名，禁止再写中文文件名。
+1. **去括号（ASCII / 中文都做）**：删除半角 `()` 与全角 `（）` 及其中内容（嵌套则反复剥到没有成对括号），再 trim。组节点名不走本条。
+   - `test(test).png` / `test（test）.png` → `test.png`
+   - `测试（测试）.png` / `测试(测试).png` → 按 `测试` 进入后续拼音 → `cs.png`
+   - 剥完为空：含汉字兜底 `img`，否则 `untitled`
+2. 若仍**含汉字**（`[\u4e00-\u9fff]`）：用 **`pinyin-pro`** `pattern: 'first'`、`toneType: 'none'`、`nonZh: 'consecutive'`（非汉字原样保留）。
+3. 去空白后经 `sanitizeFsName`，再只保留 `[A-Za-z0-9._-]`，**全体小写**。空则 `img`。
+4. **尾部符号**：原名（去扩展名、去括号后）**不含 `_`** 时，结果不得以 `_`、`.`、`-` 结尾（去掉拼音/替换产生的尾部符号）。原名本身含 `_` 则不因本条删掉结尾 `_`。碰撞后缀 `_1` 不受本条影响。
+5. 扩展名保持来源（PSD 像素层固定 `.png`；Prefab 跟原文件）。
+6. **首字母碰撞**（大小写不敏感）：`bj.png`、`bj_1.png`、`bj_2.png`…
+7. 写盘文件名与 JSON `SpriteComponent.framePath` 的末段必须是新名，禁止再写中文文件名。
 
 例：图层「背景」→ `bj.png`；「背景。」（无 `_`）→ `bj.png` 而非 `bj_.png`；「布局」也是 `bj` → `bj_1.png`。对应像素层节点名见 §5.5。
 
@@ -389,7 +393,7 @@ y = top  + height/2 - docH/2
 - **包标识名**（文件夹、`{name}.prefab`、`{name}.ts`、脚本类名 `@ccclass` **同一串**）：取当前 UI JSON 去扩展名（CLI 为 `--ui` 文件名）。**禁止中文落入这四者**。
   - 无汉字：`sanitizeFsName`（与现网一致，如 `test`）。
   - 有汉字：**不要**用 §5.6 首字母。用 `pinyin-pro` **全拼**（`toneType: 'none'`、`type: 'array'`、`nonZh: 'consecutive'`），每段首字母大写拼成 **大驼峰**：`主界面` → `ZhuJieMian` → `{out}/ZhuJieMian/ZhuJieMian.prefab` + `ZhuJieMian.ts`。
-  - 尾部 `_` `.` `-`：同 §5.6 第 3 条。空则 `ui`；若以数字开头加前缀 `UI`。
+  - 尾部 `_` `.` `-`：同 §5.6 第 4 条。空则 `ui`；若以数字开头加前缀 `UI`。
   - 项目内 JSON 仍可为中文文件名，只改导出包。
 
 ## 6.2 资源与稳定 UUID
@@ -519,7 +523,7 @@ uieditor --help
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
-10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。组节点仍为图层原名。
+10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。图层 `test(test)` / `test（test）` → `test.png`；`测试（测试）` / `测试(测试)` → `cs.png` / 节点 `cs`。组节点仍为图层原名。
 11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。

@@ -14,6 +14,17 @@ function stripExt(rawName: string, extRe: RegExp): string {
   return rawName.replace(extRe, '').trim()
 }
 
+/** 去掉半角 `()`、全角 `（）` 及其中内容（嵌套则反复剥） */
+export function stripParentheticals(raw: string): string {
+  let s = raw
+  for (;;) {
+    const next = s.replace(/\([^()]*\)/g, '').replace(/（[^（）]*）/g, '')
+    if (next === s) break
+    s = next
+  }
+  return s.replace(/\s+/g, ' ').trim()
+}
+
 /** 原名不含 `_` 时去掉结尾的 `_` `.` `-`（转换引入的奇怪符号） */
 function stripTrailingOddSymbols(stem: string, originalNoExt: string): string {
   if (originalNoExt.includes('_')) return stem
@@ -24,9 +35,11 @@ function finalizeStem(stem: string, originalNoExt: string, emptyFallback: string
   return stripTrailingOddSymbols(stem, originalNoExt) || emptyFallback
 }
 
-/** 去掉扩展名后的 stem；含汉字则拼音首字母缩写（小写）；无汉字沿用 sanitizeFsName */
+/** 去掉扩展名后的 stem：先去括号，含汉字则拼音首字母缩写（小写）；无汉字沿用 sanitizeFsName */
 export function toImageFileStem(rawName: string): string {
-  const noExt = stripExt(rawName, IMAGE_EXT_RE)
+  const rawNoExt = stripExt(rawName, IMAGE_EXT_RE)
+  const noExt = stripParentheticals(rawNoExt)
+  if (!noExt) return CJK_RE.test(rawNoExt) ? 'img' : 'untitled'
   if (CJK_RE.test(noExt)) {
     const abbr = pinyin(noExt, {
       pattern: 'first',
