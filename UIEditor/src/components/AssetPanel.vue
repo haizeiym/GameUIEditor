@@ -95,7 +95,7 @@ function openPreview(asset: AssetEntry) {
       </span>
     </h3>
 
-    <div class="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+    <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
       <p v-if="!project.dirHandle" class="px-3 py-4 text-xs text-zinc-500">
         挂载项目后，这里会显示项目内的 .png / .jpg / .webp 图片；点击左侧文件夹可只看该目录
       </p>
@@ -106,11 +106,14 @@ function openPreview(asset: AssetEntry) {
             : '项目内暂无图片资源'
         }}
       </p>
-      <div v-else class="flex h-full items-start gap-2 p-2">
+      <div
+        v-else
+        class="grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] content-start gap-2 p-2"
+      >
         <div
           v-for="asset in project.filteredAssets"
           :key="asset.path"
-          class="flex w-20 shrink-0 cursor-grab flex-col items-center gap-1 rounded border bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
+          class="flex min-w-0 cursor-grab flex-col items-center gap-1 rounded border bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
           :class="
             multiSelected.has(asset.path) ||
             (project.selectedAssetPaths.length === 1 && project.selectedAssetPaths[0] === asset.path)

@@ -309,6 +309,7 @@ trim；若结果为空 → "untitled"
 - 【手动刷新】+ Window Focus 时轮询/重扫，图片增删后刷新列表。
 - **多选（必须）**：无勾选框。单击 = 只选该项；**Ctrl/⌘+单击** 切换加入集合；已选项边框高亮。拖到 `framePath` 写入被拖那一项的相对路径。拖到 `fileArray` 时：若拖的图在多选集合中则追加全部，否则只追加该项。
 - **双击缩略图**：遮罩层放大查看原图（点遮罩 / 按钮 / `Esc` 关闭）。不改变拖到 `framePath` 的行为。
+- **布局（必须）**：缩略图用 **CSS Grid** 多行多列，列宽 `auto-fill` + `minmax(80px, 1fr)`，从左到右、自上而下。栏变宽则列数增加，栏变高则多行；超出区域**纵向滚动**（不要单行横向排布）。选中 / 拖放 / 双击行为不变。
 ---
 
 # 四、数据流与历史
@@ -548,7 +549,7 @@ uieditor --help
 # 八、建议自测清单（实现完成后勾选）
 
 1. Chrome/Edge：新建项目 → 出现 `components.json` / `assets/` / `main.json`。
-2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片单击选中、Ctrl/⌘+点多选、双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 与 `ImgToFile.fileArray` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
+2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片 Grid 多行多列；单击选中、Ctrl/⌘+点多选、双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 与 `ImgToFile.fileArray` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
 4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。相同像素层只写一份 PNG，多个节点共用 `framePath`；网页有进度框。
 5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
