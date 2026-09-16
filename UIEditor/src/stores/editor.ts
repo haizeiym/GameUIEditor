@@ -25,7 +25,7 @@ import {
   topLevelSelectedIds,
 } from '../utils/node'
 import { sanitizeFsName } from '../utils/psd'
-import { toExportBaseName } from '../utils/imageFileName'
+import { resolvePrefabPackName } from '../utils/prefabTsTemplate'
 import { hasScriptBindProps, latestScriptBind } from '../utils/recentScriptBinds'
 import { latestToFile } from '../utils/recentToFile'
 import {
@@ -378,7 +378,7 @@ export const useEditorStore = defineStore('editor', () => {
       }))
 
     const rawName = (currentFilePath.value.split('/').pop() || 'ui.json').replace(/\.json$/i, '')
-    const baseName = toExportBaseName(rawName)
+    const baseName = resolvePrefabPackName(currentUIData.value, rawName)
 
     if (await pathExists(exportRoot, baseName)) {
       const ok = confirmOverwrite ? await confirmOverwrite(baseName) : true
@@ -537,10 +537,8 @@ export const useEditorStore = defineStore('editor', () => {
       if (latestType) data.templateType = latestType
       const latestPath = latestTemplatePath()
       if (latestPath) data.templatePath = latestPath
-      if (!isRoot) {
-        const latestAlias = latestTemplateAlias()
-        if (latestAlias) data.templateAlias = latestAlias
-      }
+      const latestAlias = latestTemplateAlias()
+      if (latestAlias) data.templateAlias = latestAlias
     }
     if (type === 'ImgToFileComponent') {
       const latest = latestToFile()

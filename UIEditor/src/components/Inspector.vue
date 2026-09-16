@@ -305,13 +305,6 @@ function onPropCommit(type: string, propName: string) {
   editor.commit()
 }
 
-function shouldShowProp(type: string, propName: string): boolean {
-  if (type === 'TemplateComponent' && propName === 'templateAlias' && editor.isRootSelected) {
-    return false
-  }
-  return true
-}
-
 function selectedImagePaths(): string[] {
   const files = project.selectedEntryPaths.filter((p) => isImageFile(p.split('/').pop() || ''))
   return mergeImagePaths([], [...files, ...project.selectedAssetPaths])
@@ -467,7 +460,6 @@ function addSelectedImages(type: string) {
               <template v-if="project.componentDefs[type]">
                 <div
                   v-for="(propDef, propName) in project.componentDefs[type].properties"
-                  v-show="shouldShowProp(type, String(propName))"
                   :key="propName"
                   class="flex gap-2"
                   :class="propDef.type === 'array' ? 'items-start' : 'items-center'"
@@ -521,7 +513,7 @@ function addSelectedImages(type: string) {
                 </div>
                 <p v-if="type === 'TemplateComponent'" class="text-[11px] leading-snug text-zinc-500">
                   <template v-if="editor.isRootSelected">
-                    Root 包脚本：无路径时空/「1」→ cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md，templateType 原样对应标题。FileName 换成包名。别名对 Root 无效故隐藏。
+                    Root：填了 templateAlias 时，包文件夹 / Prefab / 配套 .ts / 类名都用别名。未填则仍用 JSON 文件名。无路径时空/「1」→ cocosPrefab.md 的 ### 1；「list_item」→ list.md 的 ### item。有 templatePath 时用该 .md，templateType 原样对应标题。
                   </template>
                   <template v-else>
                     子节点额外脚本：type 与 alias 都空则不导出。未填 alias 时文件名为 type；填了则为 alias。同 type 无 alias 或 type+alias 都相同只留一份；同 type 不同 alias 各一份。远程地址导出前下载。

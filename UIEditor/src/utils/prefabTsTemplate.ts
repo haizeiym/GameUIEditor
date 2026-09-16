@@ -92,6 +92,18 @@ export function readRootTemplatePath(root: UINode): string {
   return readTemplateString(root, 'templatePath')
 }
 
+export function readRootTemplateAlias(root: UINode): string {
+  return readTemplateString(root, 'templateAlias')
+}
+
+/**
+ * Prefab 包标识名：Root.templateAlias 已填则用之，否则用 JSON 文件名（均经 toExportBaseName）。
+ */
+export function resolvePrefabPackName(root: UINode, fileBaseName: string): string {
+  const alias = readRootTemplateAlias(root)
+  return toExportBaseName(alias || fileBaseName)
+}
+
 function readTemplateString(node: UINode, key: string): string {
   const raw = node.components['TemplateComponent']?.[key]
   if (typeof raw !== 'string') return ''

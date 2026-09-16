@@ -15,7 +15,7 @@ import {
   writeTextFile,
 } from './fs'
 import { sanitizeFsName } from './fsName'
-import { uniqueImageFileName, toExportBaseName } from './imageFileName'
+import { uniqueImageFileName } from './imageFileName'
 import { readImagePathList } from './imagePaths'
 import {
   buildPrefabScriptSource,
@@ -25,6 +25,7 @@ import {
   isRemoteTemplateUrl,
   readRootTemplatePath,
   readRootTemplateType,
+  resolvePrefabPackName,
 } from './prefabTsTemplate'
 import { findDescendantByPath, resolveNodeRef, resolveScriptBindField } from './uiNode'
 
@@ -1082,7 +1083,7 @@ export async function exportCocosPrefabCore(
   options: CocosPrefabExportCoreOptions,
 ): Promise<CocosPrefabExportResult> {
   const { root, readImageBytes, fs } = options
-  const baseName = toExportBaseName(options.baseName)
+  const baseName = resolvePrefabPackName(root, options.baseName)
   const jobs = collectImageExportJobs(root)
   const uniqueSources = [...new Set(jobs.map((j) => j.sourcePath))]
   const missing: string[] = []
@@ -1310,7 +1311,7 @@ export async function exportCocosPrefab(
 ): Promise<CocosPrefabExportResult> {
   const { exportRoot, root, readImage } = options
   // 确保包目录存在
-  const baseName = toExportBaseName(options.baseName)
+  const baseName = resolvePrefabPackName(root, options.baseName)
   const packDir = await getDirectoryHandleByPath(exportRoot, baseName, true)
   if (!packDir) throw new Error('无法创建导出目录')
   const uiDir = await getDirectoryHandleByPath(packDir, 'UI', true)

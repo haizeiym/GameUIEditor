@@ -95,7 +95,7 @@ interface UINode {
 ## 2.3 组件互斥
 - `components.json` 每项可含 `componentType?: number`。
 - 规则：同名组件只能挂一个；若定义了 `componentType`，则**同 `componentType` 也只能挂一个**。
-- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`；ImgToFile 为 `7`；**TemplateComponent 为 `1000`，任意节点可挂（每节点至多一个）**，本身不写入 Prefab 组件，只驱动配套 `.ts`（§6.5）。Root 隐藏 `templateAlias`。
+- Sprite 与 Label 同属 `componentType: 1`，互斥；Opacity 为 `2`；SimpleList 为 `3`；Button 为 `4`；LangSprite 为 `5`；LangLabel 为 `6`；ImgToFile 为 `7`；**TemplateComponent 为 `1000`，任意节点可挂（每节点至多一个）**，本身不写入 Prefab 组件，只驱动配套 `.ts` 与包标识名（§6.1 / §6.5）。
 - **`abbreviation?: string`**（组件库内应唯一，大小写敏感）：图层括号标注用的短名，**不**参与写盘文件名。内置：`ButtonComponent` → `Btn`，`LangSpriteComponent` → `Langi`，`ImgToFileComponent` → `ToFile`。全名（如 `ButtonComponent`）始终可匹配。键名必须是 `abbreviation`（不要写成 `"abbreviation "`）。
 - **添加组件**（Inspector 与 PSD 括号标注共用 `mountComponentOnNode`）：
   - `ButtonComponent`：`target` 类型为 `node`，默认 `.`（当前节点）。Inspector 下拉为当前节点 + 子孙相对路径。
@@ -299,9 +299,9 @@ trim；若结果为空 → "untitled"
 - `ImgToFileComponent.fileArray`（必须）：Drop Target，从**文件树**或**资源管理器**拖入 `.png/.jpg/.webp`；单选拖一项，多选拖入全部（去重追加，不覆盖已有）。也可在文件树/资源管理器选中图片后点 Inspector「添加选中」，或文件树右键「加入图片数组」（需当前节点已挂 ImgToFile）。列表可单项删除；「清除」一键清空（空列表禁用）。空项忽略。可 Ctrl+Z。
 - `scriptPath`（SimpleList / LangSprite / LangLabel 等同时声明了 `scriptPath`+`scriptUuid` 的组件）：可拖入/输入本机脚本路径；校验为脚本文件（非文件夹），并读取同名 `.meta` 自动填入 `scriptUuid`。
 - `TemplateComponent.templatePath`：可从 Finder 拖入 `.md`、粘贴本机/项目相对路径，或 **http(s) 远程 `.md` 地址**（pathname 以 `.md` 结尾，可带 query）。解析 `File.path`、`file://`、拖放 MIME 文本；Chrome 若不暴露绝对路径则弹出输入框。本地拖入会缓存正文（打包后无 `/__local_fs` 时用）。远程地址**不缓存**，每次导出先下载。
-- `TemplateComponent.templateAlias`：**仅非 Root 显示**。导出额外脚本时优先作文件名；Root 忽略该字段。
+- `TemplateComponent.templateAlias`：任意节点可填。Root 已填时包文件夹 / Prefab / 配套 `.ts` / 类名都用别名（§6.1）；子节点额外脚本优先用别名作文件名。
 - **脚本绑定最近记录（网页）**：上述组件**按类型分别**在本机记住最近 **3** 次成功绑定 `{ scriptPath, scriptUuid }`（`localStorage` `uieditor.recent-script-binds`；同路径置顶去重）。再次「添加组件」时自动填入该类型最近一条；Inspector 脚本路径旁「最近」可点选其余记录。成功改路径/拖入脚本时写入。仅网页；CLI 不记。
-- **模板最近记录（网页）**：`templateType` / `templateAlias` / `templatePath` 各自记住最近 **10** 条非空输入（`uieditor.recent-template-types` / `uieditor.recent-template-aliases` / `uieditor.recent-template-paths`；同值置顶去重）。再次添加 `TemplateComponent` 时自动填 type/path 最近一条；**非 Root** 再填 alias 最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
+- **模板最近记录（网页）**：`templateType` / `templateAlias` / `templatePath` 各自记住最近 **10** 条非空输入（`uieditor.recent-template-types` / `uieditor.recent-template-aliases` / `uieditor.recent-template-paths`；同值置顶去重）。再次添加 `TemplateComponent` 时自动填各自最近一条；旁「最近」可点选。仅网页；CLI 不记。规则见 §6.5。
 - **`toFile` 最近记录（网页）**：`ImgToFileComponent.toFile` 记住最近 **10** 条非空输入（`uieditor.recent-to-file`；同值置顶去重）。再次添加该组件时自动填最近一条；旁「最近」可点选。改属性提交时写入。仅网页；CLI 不记。
 
 ## 3.5 底部资源管理器
@@ -418,7 +418,7 @@ y = top  + height/2 - docH/2
 {out}/test/test.ts.meta
 # 各层目录 .meta（含 UI/zh.meta、UI/img.meta；无对应图时不建该子目录）
 ```
-- **包标识名**（文件夹、`{name}.prefab`、`{name}.ts`、脚本类名 `@ccclass` **同一串**）：取当前 UI JSON 去扩展名（CLI 为 `--ui` 文件名）。**禁止中文落入这四者**。
+- **包标识名**（文件夹、`{name}.prefab`、`{name}.ts`、脚本类名 `@ccclass` **同一串**）：Root 上 `TemplateComponent.templateAlias` **已填**（trim 后非空）则用别名；**未填**则取当前 UI JSON 去扩展名（CLI 为 `--ui` 文件名）。均经 `toExportBaseName`。**禁止中文落入这四者**。
   - 无汉字：`sanitizeFsName`（与现网一致，如 `test`）。
   - 有汉字：**不要**用 §5.6 首字母。用 `pinyin-pro` **全拼**（`toneType: 'none'`、`type: 'array'`、`nonZh: 'consecutive'`），每段首字母大写拼成 **大驼峰**：`主界面` → `ZhuJieMian` → `{out}/ZhuJieMian/ZhuJieMian.prefab` + `ZhuJieMian.ts`。
   - 尾部 `_` `.` `-`：同 §5.6 第 4 条。空则 `ui`；若以数字开头加前缀 `UI`。
@@ -456,7 +456,7 @@ y = top  + height/2 - docH/2
 - **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
 - `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 额外写入 `_langPath: "UI"`、`_bundleName` = 包名、`_langKey` = 导出图 stem，运行时加载 `UI/{lang}/{key}`。图片目录见 §6.2。
 - `ImgToFileComponent`：**不**写入 Prefab 组件。本节点 Sprite 导出目录见 §6.2；`fileArray` 只作为额外打包清单。
-- `TemplateComponent`：**不**写入 Prefab 组件。Root 实例只决定包名配套脚本；子节点实例导出额外 `.ts` 并挂到对应节点（§6.5）。
+- `TemplateComponent`：**不**写入 Prefab 组件。Root 的 `templateType`/`templatePath` 选包脚本模板；已填 `templateAlias` 时同时改包标识名（§6.1）。子节点实例导出额外 `.ts` 并挂到对应节点（§6.5）。
 - 无上述组件则仅 Node + UITransform。
 - 根组件顺序：`UITransform` →（可选 Sprite|Label|Opacity|ScrollView+脚本|Button|Lang 脚本）→ **配套脚本** → PrefabInfo；脚本 `__type__` = compressUuid(`.ts.meta` uuid)，禁止写类名字符串。子节点若有去重后的额外模板脚本，挂在同类位置。
 - 子节点顺序 = JSON `children` 原序。
@@ -476,6 +476,8 @@ FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 
 ## 6.5 配套脚本
 由 **Root** 上 `TemplateComponent` 选择 ts 模板，再把全部 `FileName` → **包标识名**（§6.1）。网页与 CLI 均须生成。`TemplateComponent` 不写入 Prefab 组件。
+
+**Root `templateAlias`**：已填则包文件夹 / Prefab / 配套 `.ts` / 类名均为别名（经 `toExportBaseName`）；未填则仍用 JSON 文件名。`templateType` / `templatePath` 只决定模板正文，不因别名改变选块规则。空 type 仍按上表走 `### 1`。
 
 **`templatePath`（trim；本地路径 `\` → `/`）**：
 - 空：按下面「无路径」规则从仓库 `codePreview/` 取文档。
@@ -497,7 +499,7 @@ FILLED：无 fill 细分属性时用引擎默认 fill 字段即可。
 标题下第一个 TypeScript 围栏代码块（语言标记 `ts` 或 `typescript`）为模板正文。找不到文档或标题/代码块则导出失败（禁止静默改用别的块）。无路径时的 `xxx` 只允许 `[A-Za-z0-9._-]`、不以 `.` 开头、不含 `..`。CLI 读磁盘 `codePreview/*.md`，缺 `cocosPrefab.md` 时用内置兜底（与 `### 1` 同步）。
 
 **子节点 `TemplateComponent`（Root → A → B 等同理）**：
-- Root 包脚本规则不变：仍只读 Root 的 `templateType` / `templatePath`；**不读 Root 的 `templateAlias`**（Inspector 隐藏）。空 type 仍按上表走 `### 1`。
+- Root 包脚本仍只读 Root 的 `templateType` / `templatePath` 选块；包名见上节 `templateAlias`。
 - `templateType` 与 `templateAlias` 都空（trim 后）：该节点**不**导出额外脚本。
 - 额外文件 `{pack}/{name}.ts` 的 **name** = 已填的 `templateAlias`，否则 `templateType`，再经 `toExportBaseName`（与包名同一套合法化）。`FileName` 仍走 `toPrefabScriptClassName`（数字开头加 `UI`）。
 - 同 `templateType`、未填 alias：只留一份，名为 type。
@@ -511,7 +513,7 @@ Inspector 短名：模板类型 / 模板别名 / 模板路径。网页 type、al
 
 ## 6.6 验收
 - 拷入空 Creator 3.8 工程 `assets`：无缺失引用；可打开 Prefab；层级/位置（含 Y 翻转）/贴图/枚举与编辑器一致；根已挂同名脚本。
-- 中文 UI 名：`主界面.json` 导出为 `ZhuJieMian/` 包，不含汉字。
+- 中文 UI 名：`主界面.json` 且未填 Root `templateAlias` 时导出为 `ZhuJieMian/` 包，不含汉字。填了别名则四者用别名。
 - 覆盖：目标已存在时网页确认 / CLI 无 `--force` 则失败。
 
 ## 6.7 导出进度（通用，与引擎解耦）
@@ -570,13 +572,13 @@ uieditor --help
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
 9. 导入 PSD / 导出 Prefab / 导出 PSD 模版：成功后出现在对应「最近」列表；最多 10 条；刷新页面仍在；点最近项可再次导入/导出（需授权）。
 10. 导入 PSD：中文图层「背景」写盘为 `bj.png`，像素层节点名为 `bj`（不是「背景」）；两层同首字母时为 `bj_1.png` / 节点 `bj_1`；「背景。」无 `_` 时不得写成 `bj_.png`。图层 `test(test)` / `test（test）` → `test.png`；`测试（测试）` / `测试(测试)` → `cs.png` / 节点 `cs`。`测试(测试 Langi)` / `测试(测试 LangSpriteComponent)` 节点带 `LangSpriteComponent`+Sprite；`测试(测试 Btn)` / `测试(测试 ButtonComponent)` 节点带 `ButtonComponent`；`测试(测试 ToFile)` / `测试(测试 ImgToFileComponent)` 像素层带 Sprite+ImgToFile（组节点无 Sprite 则不挂 ToFile）。组节点仍为图层原名（可含括号），括号同样可标注组件。
-11. 导出 Prefab：`主界面.json` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。
+11. 导出 Prefab：`主界面.json` 且 Root 未填 `templateAlias` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。Root 填了 `templateAlias: foo` → 四者均为 `foo`（经 `toExportBaseName`）。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。拖左栏/右栏改宽度、拖底栏改高度，有上下限且画布仍可见；刷新后尺寸仍在。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
 14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。无 Sprite 时添加列表没有 `ImgToFileComponent`；有 Sprite 才可加，去掉 Sprite 时 ImgToFile 一并删除。`toFile` 本机最近 10 条（刷新仍在、同值置顶）；再添加自动填最近一条，旁「最近」可点选。Inspector `fileArray` 可从文件树/资源管理器单选或多选拖入（去重追加），或「添加选中」/文件树右键「加入图片数组」；列表可删单项，「清除」一键清空。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，UUID 种子 `cocos-image:UI/zh:{framePath}`；`ImgToFile.toFile=img` 且有图 → `{pack}/UI/img/`，种子 `cocos-image:UI/img:{framePath}`；`fileArray` 内路径在 `toFile` 有效时同样进 `{pack}/UI/img/`（即使 Sprite 无图），缺图失败。该图与 `UI/img.meta` 的 `imported` 为 false；toFile 空时 Sprite 仍在 `{pack}/UI/` 且 **不打包** fileArray。Prefab `_spriteFrame` 绑本节点目录的 UUID。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
-17. 任意节点可添加 `TemplateComponent`；Root 不显示 `templateAlias`。Root 包脚本：无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题。子节点：type 与 alias 都空不导出额外脚本；同 type 无 alias 只留一份名为 type；同 type 不同 alias 各一份名为 alias；type 与 alias 都相同只留一份名为 alias。远程地址导出前下载。Finder 拖入 `.md` 能写入路径。type / alias / path 各「最近」最多 10 条，再添加自动填（alias 仅非 Root）。
+17. 任意节点可添加 `TemplateComponent`，Root 也显示 `templateAlias`。Root 填了 alias：包文件夹 / Prefab / `.ts` / 类名用别名；未填则仍用 JSON 文件名。Root 包脚本选块：无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题。子节点：type 与 alias 都空不导出额外脚本；同 type 无 alias 只留一份名为 type；同 type 不同 alias 各一份名为 alias；type 与 alias 都相同只留一份名为 alias。远程地址导出前下载。Finder 拖入 `.md` 能写入路径。type / alias / path 各「最近」最多 10 条，再添加自动填。
 
 ---
 
