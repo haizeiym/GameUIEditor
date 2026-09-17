@@ -446,6 +446,7 @@ y = top  + height/2 - docH/2
 
 ## 6.3 节点映射
 - 每节点 → `cc.Node` + `cc.UITransform`（锚点 `(0.5,0.5)`）。`Sprite` 的 `sizeMode` 为 TRIMMED/RAW 且有贴图时，`_contentSize` 必须写成贴图像素宽高（与 sprite-frame `trimType: none` 的 rect 一致）。否则 Creator 打开 Prefab 时 `_resized` 发现节点尺寸 ≠ 图尺寸，会把 `_sizeMode` 改成 CUSTOM。无贴图（`_spriteFrame: null`）仍写出所选 `_sizeMode`（TRIMMED=1），不得改成 CUSTOM。
+- **`_name` 去括号（必须）**：写出 Prefab 时用 `stripParentheticals` 去掉半角 `()`、全角 `（）` 及其中内容（嵌套反复剥，再 trim）；剥完为空则 `"Node"`。**不参考**括号内文本（不据此补组件、不进 `_name`）。编辑器 JSON 节点名原样保留，不回写。例：`BtnClose(scale)` / `标题（Lang）` → `_name` 为 `BtnClose` / `标题`。Btn 前缀、SimpleList 的 `view` 判定都看去括号后的名字。
 - `_layer = 1073741824`（UI_2D）。
 - `_lpos = (x, -y, 0)`；旋转单位四元数；缩放 `(1,1,1)`。
 - `SpriteComponent` → `cc.Sprite`：`_spriteFrame` / `_color` / `_type` / `_sizeMode`；`_isTrimmedMode = (sizeMode !== RAW)`。`sizeMode` 缺省 TRIMMED。无 `framePath` 时 `_spriteFrame: null`，`_sizeMode` 仍按节点设置导出。
@@ -453,7 +454,7 @@ y = top  + height/2 - docH/2
 - `OpacityComponent` → `cc.UIOpacity`：编辑器侧按 `0–1`（兼容误写 `0–255`）转为引擎 0–255。
 - `SimpleListComponent` → 同节点先挂 `cc.ScrollView`（`horizontal`/`vertical` 取自属性），再按 `scriptUuid`（可由 `scriptPath` 对应 `.meta` 自动填充）绑定自定义脚本；`ScrollView._content` 指向 `viewNode`（默认 `view/content`）。添加组件时自动创建子节点 `view` → `content`。导出时名为 `view` 的子节点自动挂 `cc.Mask`。
 - `ButtonComponent` → `cc.Button`：`transition` 见 §6.4；`target` 为 `node` 引用（`.` / 空 / 本节点名 → 自身，`_target` 指向本节点 `__id__`；否则相对子孙路径）。`clickEvents` 为空（运行时 BindUI 绑定）。
-- **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。
+- **Btn 自动挂载（必须）**：导出时递归整棵节点树（含子节点）。**去括号后的**名称以 `Btn` 开头（大小写敏感）且**尚未**有 `ButtonComponent` 时，按缺省 `transition: SCALE`、`target: "."`（自身）补挂 `cc.Button`。已有则跳过、不覆盖已填属性。**不回写**编辑器 JSON。括号内的 `Btn` 不算。
 - `LangSpriteComponent` / `LangLabelComponent` → 按 `scriptUuid` 绑定自定义脚本（同 SimpleList）；缺 UUID 则跳过并告警。LangSprite 额外写入 `_langPath: "UI"`、`_bundleName` = 包名、`_langKey` = 导出图 stem，运行时加载 `UI/{lang}/{key}`。图片目录见 §6.2。
 - `ImgToFileComponent`：**不**写入 Prefab 组件。本节点 Sprite 导出目录见 §6.2；`fileArray` 只作为额外打包清单。
 - `TemplateComponent`：**不**写入 Prefab 组件。Root 的 `templateType`/`templatePath` 选包脚本模板；已填 `templateAlias` 时同时改包标识名（§6.1）。子节点实例导出额外 `.ts` 并挂到对应节点（§6.5）。
@@ -566,7 +567,7 @@ uieditor --help
 2. 新建子节点、树拖拽排序、画布点选最深层、拖拽改 xy、四角改 wh、Root 不可删不可缩放。节点树 / 文件树可多选：Ctrl/⌘+点（无勾选框，行高亮）；多选拖到目标；节点多选复制/删除；文件多选拖到其它文件夹（磁盘移动）。底部图片 Grid 多行多列；单击选中、Ctrl/⌘+点多选、双击放大，Esc 关闭。把含图的文件夹拖到另一目录后，打开中的 UI 与其它 `.json` 里 `SpriteComponent.framePath` 与 `ImgToFile.fileArray` 一并改成新相对路径；`components.json` 不动；画布能重新加载该图。
 3. 添加 Sprite/Label 互斥；资源拖到 `framePath`；300ms 写盘；Ctrl+Z/Y。
 4. 导入 PSD：Root=设计分辨率；坐标公式；无 reverse；半透明有 Opacity。相同像素层只写一份 PNG，多个节点共用 `framePath`；网页有进度框。
-5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。
+5. 导出 Prefab：进 Creator 3.8 无红字；Y 翻转；枚举正确；根脚本存在；网页有通用进度框。节点 `A(B)` / `A（B）` 的 `_name` 为 `A`，JSON 仍保留括号。
 6. CLI：`import-psd` / `export-prefab` 与网页产物等价；`validate-ui` 对坏 JSON 非 0。
 7. SimpleList：添加组件自动生成 `view/content`；导出含 ScrollView + Mask(view) + 脚本 UUID。
 8. 导出 PSD 模版：图层名=节点名；节点 A-B-C 时画面 C 最上、A 最下（面板 C→B→A）；`hidden=!active`；Sprite 层为灰底占位、无项目贴图。
@@ -575,7 +576,7 @@ uieditor --help
 11. 导出 Prefab：`主界面.json` 且 Root 未填 `templateAlias` → 文件夹 / prefab / `.ts` / 类名均为 `ZhuJieMian`。Root 填了 `templateAlias: foo` → 四者均为 `foo`（经 `toExportBaseName`）。
 12. 缩窄窗口：顶栏已显示的按钮仍可见可点（换行左对齐、无组间分割线），无裁切；长路径可省略。拖左栏/右栏改宽度、拖底栏改高度，有上下限且画布仍可见；刷新后尺寸仍在。
 13. 顶栏设置：隐藏某按钮后顶栏不再出现；改顺序后位置变化；刷新 / 新标签仍生效；【恢复默认】+【确定】还原；取消不落盘。
-14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
+14. 导出 Prefab：节点 `BtnClose` 自动带 `cc.Button`（SCALE，`_target` 为自身）；`BtnClose(xxx)` / `BtnClose（xxx）` 导出 `_name` 为 `BtnClose` 并同样补 Button。已挂 `ButtonComponent` 的同名节点不重复、沿用已填 `target`/`transition`。JSON 运行时 `ParseJsonUI` 同样按 `Btn` 前缀补 Button。
 15. 添加 `ButtonComponent`：`target` 下拉默认当前节点。添加 `LangSpriteComponent` 自动带 `SpriteComponent`；添加 `LangLabelComponent` 自动带 `LabelComponent`。无 Sprite 时添加列表没有 `ImgToFileComponent`；有 Sprite 才可加，去掉 Sprite 时 ImgToFile 一并删除。`toFile` 本机最近 10 条（刷新仍在、同值置顶）；再添加自动填最近一条，旁「最近」可点选。Inspector `fileArray` 可从文件树/资源管理器单选或多选拖入（去重追加），或「添加选中」/文件树右键「加入图片数组」；列表可删单项，「清除」一键清空。导出时 LangSprite 节点的图在 `{pack}/UI/zh/`，UUID 种子 `cocos-image:UI/zh:{framePath}`；`ImgToFile.toFile=img` 且有图 → `{pack}/UI/img/`，种子 `cocos-image:UI/img:{framePath}`；`fileArray` 内路径在 `toFile` 有效时同样进 `{pack}/UI/img/`（即使 Sprite 无图），缺图失败。该图与 `UI/img.meta` 的 `imported` 为 false；toFile 空时 Sprite 仍在 `{pack}/UI/` 且 **不打包** fileArray。Prefab `_spriteFrame` 绑本节点目录的 UUID。覆盖导出先删旧包。
 16. 带 `scriptPath`/`scriptUuid` 的组件（SimpleList / LangSprite / LangLabel）：成功绑脚本后刷新仍能在「最近」看到最多 3 条；再添加同类型组件时自动填入最近一条路径和 UUID。三种类型互不串。
 17. 任意节点可添加 `TemplateComponent`，Root 也显示 `templateAlias`。Root 填了 alias：包文件夹 / Prefab / `.ts` / 类名用别名；未填则仍用 JSON 文件名。Root 包脚本选块：无路径时 `templateType` 空/1 导出 `cocosPrefab.md` 的 `### 1`；`list_item` 导出 `list.md` 的 `### item`。填了 `.md` 的 `templatePath` 则只在该文件内按 `templateType` **原样**选标题。子节点：type 与 alias 都空不导出额外脚本；同 type 无 alias 只留一份名为 type；同 type 不同 alias 各一份名为 alias；type 与 alias 都相同只留一份名为 alias。远程地址导出前下载。Finder 拖入 `.md` 能写入路径。type / alias / path 各「最近」最多 10 条，再添加自动填。

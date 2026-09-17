@@ -15,7 +15,7 @@ import {
   writeTextFile,
 } from './fs'
 import { sanitizeFsName } from './fsName'
-import { uniqueImageFileName } from './imageFileName'
+import { uniqueImageFileName, stripParentheticals } from './imageFileName'
 import { readImagePathList } from './imagePaths'
 import {
   buildPrefabScriptSource,
@@ -162,6 +162,11 @@ function nodeNameStartsWithBtn(name: string): boolean {
   return name.startsWith('Btn')
 }
 
+/** Prefab `_name`：去掉半角/全角括号及其中内容，不回写 JSON */
+function exportNodeName(node: UINode): string {
+  return stripParentheticals(node.name || '') || 'Node'
+}
+
 /** Button.transition：NONE=0, SCALE=3（缺省 SCALE） */
 function resolveButtonTransition(v: unknown): number {
   if (typeof v === 'string') {
@@ -179,7 +184,7 @@ function resolveButtonTransition(v: unknown): number {
 function resolveButtonSource(node: UINode): Record<string, unknown> | null {
   const existing = node.components['ButtonComponent']
   if (existing) return existing
-  if (nodeNameStartsWithBtn(node.name || '')) {
+  if (nodeNameStartsWithBtn(exportNodeName(node))) {
     return { target: '.', transition: 'SCALE' }
   }
   return null
@@ -678,9 +683,10 @@ export function buildPrefabObjects(
 
   const emitNode = (node: UINode, parentId: number | null, parentUI: UINode | null): number => {
     const nodeId = objects.length
+    const exportedName = exportNodeName(node)
     const nodeObj: PrefabObject = {
       __type__: 'cc.Node',
-      _name: node.name || 'Node',
+      _name: exportedName,
       _objFlags: 0,
       __editorExtras__: {},
       _parent: parentId === null ? null : { __id__: parentId },
@@ -727,7 +733,7 @@ export function buildPrefabObjects(
 
     // SimpleList 的 view 节点：自动挂 Mask（矩形裁剪）
     if (
-      node.name === 'view' &&
+      exportedName === 'view' &&
       parentUI?.components['SimpleListComponent']
     ) {
       const maskId = objects.length
@@ -996,7 +1002,7 @@ export function buildPrefabObjects(
         : undefined
       const langKey = exportName
         ? exportName.replace(/\.[^.]+$/, '')
-        : node.name.replace(/^Langi/i, '') || node.name
+        : exportedName.replace(/^Langi/i, '') || exportedName
       pushBoundScript('LangSpriteComponent', {
         isShowSetBk: true,
         isOnLoad: true,
