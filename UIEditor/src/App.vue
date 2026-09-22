@@ -23,9 +23,10 @@ const workspaceEl = ref<HTMLElement | null>(null)
 const leftW = ref(DEFAULT_PANEL_LAYOUT.left)
 const rightW = ref(DEFAULT_PANEL_LAYOUT.right)
 const bottomH = ref(DEFAULT_PANEL_LAYOUT.bottom)
-const dragging = ref<'left' | 'right' | 'bottom' | null>(null)
+const fileH = ref(DEFAULT_PANEL_LAYOUT.file)
+const dragging = ref<'left' | 'right' | 'bottom' | 'file' | null>(null)
 
-type DragKind = 'left' | 'right' | 'bottom'
+type DragKind = 'left' | 'right' | 'bottom' | 'file'
 
 let drag: { kind: DragKind; start: number; startSize: number } | null = null
 let unsubLayout: (() => void) | null = null
@@ -44,6 +45,7 @@ function fit(partial: Partial<PanelLayout>): PanelLayout {
       left: partial.left ?? leftW.value,
       right: partial.right ?? rightW.value,
       bottom: partial.bottom ?? bottomH.value,
+      file: partial.file ?? fileH.value,
     },
     workspaceSize(),
   )
@@ -58,6 +60,7 @@ function applyLayoutNoSave(next: PanelLayout) {
   leftW.value = next.left
   rightW.value = next.right
   bottomH.value = next.bottom
+  fileH.value = next.file
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -99,8 +102,10 @@ function onSplitterDown(kind: DragKind, e: PointerEvent) {
   } catch {
     /* 无真实指针时忽略 */
   }
-  const start = kind === 'bottom' ? e.clientY : e.clientX
-  const startSize = kind === 'left' ? leftW.value : kind === 'right' ? rightW.value : bottomH.value
+  const vertical = kind === 'bottom' || kind === 'file'
+  const start = vertical ? e.clientY : e.clientX
+  const startSize =
+    kind === 'left' ? leftW.value : kind === 'right' ? rightW.value : kind === 'file' ? fileH.value : bottomH.value
   drag = { kind, start, startSize }
   dragging.value = kind
   window.addEventListener('pointermove', onSplitterMove)
@@ -110,7 +115,8 @@ function onSplitterDown(kind: DragKind, e: PointerEvent) {
 
 function onSplitterMove(e: PointerEvent) {
   if (!drag) return
-  const pos = drag.kind === 'bottom' ? e.clientY : e.clientX
+  const vertical = drag.kind === 'bottom' || drag.kind === 'file'
+  const pos = vertical ? e.clientY : e.clientX
   const delta = pos - drag.start
   if (drag.kind === 'left') {
     applyLayoutNoSave(fit({ left: drag.startSize + delta }))
@@ -118,6 +124,10 @@ function onSplitterMove(e: PointerEvent) {
   }
   if (drag.kind === 'right') {
     applyLayoutNoSave(fit({ right: drag.startSize - delta }))
+    return
+  }
+  if (drag.kind === 'file') {
+    applyLayoutNoSave(fit({ file: drag.startSize - delta }))
     return
   }
   applyLayoutNoSave(fit({ bottom: drag.startSize - delta }))
@@ -130,11 +140,11 @@ function onSplitterUp() {
   window.removeEventListener('pointermove', onSplitterMove)
   window.removeEventListener('pointerup', onSplitterUp)
   window.removeEventListener('pointercancel', onSplitterUp)
-  applyLayout({ left: leftW.value, right: rightW.value, bottom: bottomH.value })
+  applyLayout({ left: leftW.value, right: rightW.value, bottom: bottomH.value, file: fileH.value })
 }
 
 function onWinResize() {
-  applyLayout({ left: leftW.value, right: rightW.value, bottom: bottomH.value })
+  applyLayout({ left: leftW.value, right: rightW.value, bottom: bottomH.value, file: fileH.value })
 }
 
 onMounted(() => {
@@ -165,8 +175,22 @@ onBeforeUnmount(() => {
         class="relative flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-900"
         :style="{ width: `${leftW}px` }"
       >
-        <NodeTree class="min-h-0 flex-3 border-b border-zinc-800" />
-        <FileTree class="min-h-0 flex-2" />
+        <NodeTree class="min-h-0 flex-1" />
+        <div class="relative shrink-0" :style="{ height: `${fileH}px` }">
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="调整项目文件树高度"
+            class="absolute top-0 right-0 left-0 z-30 h-1.5 cursor-row-resize touch-none hover:bg-sky-500/40"
+            :class="dragging === 'file' ? 'bg-sky-500/50' : ''"
+            title="拖动调整项目文件树高度"
+            tabindex="0"
+            @pointerdown="onSplitterDown('file', $event)"
+          >
+            <span class="sr-only">调整项目文件树高度</span>
+          </div>
+          <FileTree class="h-full border-t border-zinc-800" />
+        </div>
         <div
           role="separator"
           aria-orientation="vertical"

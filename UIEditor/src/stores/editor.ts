@@ -109,13 +109,20 @@ export const useEditorStore = defineStore('editor', () => {
     if (!findNodeById(root, id)) return
     if (additive && id !== root._id) {
       const set = new Set(selectedIds.value.filter((x) => x !== root._id))
-      if (set.has(id)) set.delete(id)
-      else set.add(id)
-      if (!set.size) {
-        selectedId.value = id
-        selectedIds.value = [id]
+      if (set.has(id)) {
+        set.delete(id)
+        if (!set.size) {
+          selectedId.value = id
+          selectedIds.value = [id]
+          return
+        }
+        selectedIds.value = [...set]
+        if (!selectedId.value || selectedId.value === id || !set.has(selectedId.value)) {
+          selectedId.value = [...set].at(-1) ?? id
+        }
         return
       }
+      set.add(id)
       selectedIds.value = [...set]
       selectedId.value = id
       return

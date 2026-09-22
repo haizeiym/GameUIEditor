@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { ElTree } from 'element-plus'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { FileEntry } from '../types'
 import { useProjectStore } from '../stores/project'
@@ -11,15 +12,14 @@ import { isAdditiveClick } from '../utils/pointer'
 
 const project = useProjectStore()
 const editor = useEditorStore()
+const treeRef = ref<InstanceType<typeof ElTree>>()
 const checkedPaths = computed({
   get: () => project.selectedEntryPaths,
   set: (v: string[]) => {
     project.selectedEntryPaths = v
   },
 })
-const multiSelectedPaths = computed(() =>
-  checkedPaths.value.length > 1 ? new Set(checkedPaths.value) : new Set<string>(),
-)
+const multiSelectedPaths = computed(() => new Set(checkedPaths.value))
 
 const menu = reactive({
   visible: false,
@@ -67,9 +67,11 @@ function onClick(entry: FileEntry, ...rest: unknown[]) {
   const additive = isAdditiveClick(...rest)
   if (additive) {
     const set = new Set(checkedPaths.value)
-    if (set.has(entry.path)) set.delete(entry.path)
+    const removing = set.has(entry.path)
+    if (removing) set.delete(entry.path)
     else set.add(entry.path)
     checkedPaths.value = [...set]
+    if (removing) treeRef.value?.setCurrentKey([...set].at(-1) ?? null)
   } else {
     checkedPaths.value = [entry.path]
   }
@@ -276,6 +278,7 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
     >
       <el-tree
         v-if="project.fileTree.length"
+        ref="treeRef"
         class="panel-tree"
         :data="project.fileTree"
         node-key="path"

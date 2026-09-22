@@ -35,10 +35,19 @@ body,
 .panel-tree .el-tree-node__content {
   height: 26px;
 }
-/* 多选：弱行高亮；当前项略强 */
+.panel-tree .el-tree-node__label {
+  flex: 1;
+  min-width: 0;
+}
+.panel-tree .tree-rename {
+  user-select: text;
+}
+/* 选中：亮底 + 左边线。取消选中后这两项一起消失，和仍选中的行拉开差别 */
 .panel-tree .el-tree-node__content:has(.is-multi-selected) {
-  background: rgba(64, 128, 255, 0.14);
+  background: rgba(14, 165, 233, 0.42);
+  box-shadow: inset 3px 0 0 #38bdf8;
 }
 .panel-tree.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
-  background: rgba(64, 128, 255, 0.28);
+  background: rgba(14, 165, 233, 0.62);
+  box-shadow: inset 3px 0 0 #e0f2fe;
 }

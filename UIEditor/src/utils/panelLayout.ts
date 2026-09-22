@@ -1,5 +1,5 @@
 /**
- * 左栏宽 / 右栏宽 / 底栏高（仅网页，localStorage）。
+ * 左栏宽 / 右栏宽 / 底栏高 / 左栏文件树高（仅网页，localStorage）。
  */
 
 export const PANEL_LAYOUT_LS_KEY = 'uieditor.panel-layout'
@@ -8,24 +8,30 @@ export interface PanelLayout {
   left: number
   right: number
   bottom: number
+  /** 左栏里项目文件树的高度 */
+  file: number
 }
 
 export const DEFAULT_PANEL_LAYOUT: PanelLayout = {
   left: 256,
   right: 320,
   bottom: 176,
+  file: 220,
 }
 
 export const PANEL_LIMITS = {
   left: { min: 180, max: 480 },
   right: { min: 240, max: 560 },
   bottom: { min: 72, max: 420 },
+  file: { min: 120, max: 520 },
 } as const
 
 /** 左+右之外，中间画布至少这么宽 */
 export const MIN_CENTER_WIDTH = 320
 /** 底栏之上，画布至少这么高 */
 export const MIN_CANVAS_HEIGHT = 120
+/** 文件树之上，节点树至少这么高 */
+export const MIN_NODE_TREE_HEIGHT = 96
 
 function canUseLocalStorage(): boolean {
   try {
@@ -65,6 +71,11 @@ export function normalizePanelLayout(
     PANEL_LIMITS.bottom.min,
     PANEL_LIMITS.bottom.max,
   )
+  let file = clamp(
+    toInt(src.file, DEFAULT_PANEL_LAYOUT.file),
+    PANEL_LIMITS.file.min,
+    PANEL_LIMITS.file.max,
+  )
   if (workspace && workspace.width > 0) {
     const budget = workspace.width - MIN_CENTER_WIDTH
     if (budget <= PANEL_LIMITS.left.min) {
@@ -80,8 +91,10 @@ export function normalizePanelLayout(
   if (workspace && workspace.height > 0) {
     const maxH = Math.min(PANEL_LIMITS.bottom.max, workspace.height - MIN_CANVAS_HEIGHT)
     bottom = clamp(bottom, PANEL_LIMITS.bottom.min, Math.max(PANEL_LIMITS.bottom.min, maxH))
+    const maxFile = Math.min(PANEL_LIMITS.file.max, workspace.height - MIN_NODE_TREE_HEIGHT)
+    file = clamp(file, PANEL_LIMITS.file.min, Math.max(PANEL_LIMITS.file.min, maxFile))
   }
-  return { left, right, bottom }
+  return { left, right, bottom, file }
 }
 
 export function loadPanelLayout(workspace?: { width: number; height: number }): PanelLayout {

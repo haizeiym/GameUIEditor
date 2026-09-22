@@ -7,9 +7,6 @@ import { writeImagePathsTransfer } from '../utils/imagePaths'
 
 const project = useProjectStore()
 const preview = ref<AssetEntry | null>(null)
-const multiSelected = computed(() =>
-  project.selectedAssetPaths.length > 1 ? new Set(project.selectedAssetPaths) : new Set<string>(),
-)
 
 const titleSuffix = computed(() =>
   project.assetFolderFilter ? ` · ${project.assetFolderFilter}` : ' · 全部',
@@ -115,9 +112,8 @@ function openPreview(asset: AssetEntry) {
           :key="asset.path"
           class="flex min-w-0 cursor-grab flex-col items-center gap-1 rounded border bg-zinc-950 p-1.5 hover:border-sky-700 active:cursor-grabbing"
           :class="
-            multiSelected.has(asset.path) ||
-            (project.selectedAssetPaths.length === 1 && project.selectedAssetPaths[0] === asset.path)
-              ? 'border-sky-600 bg-sky-950/40'
+            project.selectedAssetPaths.includes(asset.path)
+              ? 'border-sky-300 bg-sky-800/70 ring-2 ring-sky-300'
               : 'border-zinc-800'
           "
           draggable="true"

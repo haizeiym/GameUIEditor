@@ -6,17 +6,14 @@ import type Node from 'element-plus/es/components/tree/src/model/node'
 import type { UINode } from '../types'
 import { useEditorStore } from '../stores/editor'
 import { collectNodeIds, pruneExpandedKeys } from '../utils/nodeTreeExpand'
-import { isStrictDescendant, topLevelSelectedIds } from '../utils/node'
+import { findNodeById, isStrictDescendant, topLevelSelectedIds } from '../utils/node'
 import { isAdditiveClick } from '../utils/pointer'
 
 const editor = useEditorStore()
 const treeRef = ref<InstanceType<typeof ElTree>>()
 
 const treeData = computed<UINode[]>(() => (editor.currentUIData ? [editor.currentUIData] : []))
-const multiSelected = computed(() => {
-  if (editor.selectedCount <= 1) return new Set<string>()
-  return new Set(editor.selectedIds)
-})
+const multiSelected = computed(() => new Set(editor.selectedIds))
 
 const expandedKeys = ref<string[]>([])
 
@@ -65,6 +62,32 @@ watch(
 
 function onNodeClick(data: UINode, ...rest: unknown[]) {
   editor.selectNode(data._id, isAdditiveClick(...rest))
+}
+
+const editingId = ref<string | null>(null)
+const editingName = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+
+async function beginRename(node: UINode) {
+  editingId.value = node._id
+  editingName.value = node.name
+  editor.selectNode(node._id)
+  await nextTick()
+  renameInput.value?.focus()
+  renameInput.value?.select()
+}
+
+function finishRename(save: boolean) {
+  const id = editingId.value
+  if (!id) return
+  const raw = editingName.value
+  editingId.value = null
+  if (!save) return
+  const node = findNodeById(editor.currentUIData, id)
+  const next = raw.trim()
+  if (!node || !next || next === node.name) return
+  node.name = next
+  editor.commit()
 }
 
 function allowDrag(node: Node): boolean {
@@ -188,13 +211,28 @@ onBeforeUnmount(() => window.removeEventListener('click', closeMenu))
         @node-contextmenu="onContextMenu"
       >
         <template #default="{ data }">
+          <input
+            v-if="editingId === (data as UINode)._id"
+            ref="renameInput"
+            v-model="editingName"
+            class="tree-rename w-full min-w-0 rounded border border-sky-600 bg-zinc-950 px-1 py-0 text-[13px] text-zinc-100 outline-none"
+            @click.stop
+            @dblclick.stop
+            @mousedown.stop
+            @keydown.enter.prevent="finishRename(true)"
+            @keydown.esc.prevent.stop="finishRename(false)"
+            @blur="finishRename(true)"
+          />
           <span
+            v-else
             class="tree-label truncate text-[13px]"
             :class="{
               'text-zinc-200': (data as UINode).active,
               'text-zinc-500 line-through': !(data as UINode).active,
               'is-multi-selected': multiSelected.has((data as UINode)._id),
             }"
+            title="双击修改名称"
+            @dblclick.stop="beginRename(data as UINode)"
           >
             {{ (data as UINode).name }}
           </span>
